@@ -1,0 +1,39 @@
+{
+  "name": "@local/policy-analysis",
+  "version": "1.4.2",
+  "private": true,
+  "type": "module",
+  "main": "./index.js",
+  "icon": "./icon.svg",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
+  },
+  "files": [
+    "locale/*.json",
+    "icon.svg"
+  ],
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": ["@deepseek-ai/dsh-client-ui-conversation"]
+    },
+    "capabilityPack": {
+      "id": "policy-analysis",
+      "title": "政策解读",
+      "description": "政策检索、版本比较与政策依据审查：公开性门禁前置、检索源单向互斥、C-xxx/E-xxx 证据链绑定",
+      "entryKey": "cap:policy-analysis",
+      "order": 15,
+      "icon": "📜",
+      "category": "政务办公",
+      "version": "v1.4.2",
+      "tags": ["政策检索", "版本比较", "引用核验", "合法合规性审查"],
+      "subs": ["任务简报", "演示场景"],
+      "openEvent": "cappacks:open-policy-analysis"
+    }
+  }
+}
