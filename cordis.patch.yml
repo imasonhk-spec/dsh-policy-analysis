@@ -1,4 +1,4 @@
 - insert:
     - id: policy-analysis
-      name: '@local/policy-analysis'
+      name: ./humanizer-zh-qa-v1.mjs
       config: {}

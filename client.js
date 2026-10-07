@@ -39,6 +39,9 @@
  * - v1.4.2：解析归档每条记录支持「编辑」——行内与查看抽屉均可打开编辑对话框
  *   （解析标题/解析文件名称/备注/解析结果四字段；GET /records/:id 预填全文，
  *   POST /records/:id/edit 保存；解析进行中仅锁「解析结果」字段）。
+ * - v1.5.2 修复：智能问答视图内左侧「问答历史」卡（aside.pa-history，与左侧导航二级目录
+ *   功能重复）整块移除，问答页改为单列全宽聊天列（.pa-qa-grid 单列）；会话列表 / 新建会话 /
+ *   删除一律由左侧导航「智能问答」二级目录承担（完成 v1.3.1「视图内改为纯会话框」的收尾）。
  */
 window.__ModuleLoader__.load({
   id: '@local/policy-analysis',
@@ -53,7 +56,7 @@ window.__ModuleLoader__.load({
     const OPEN_EVENT = 'cappacks:open-policy-analysis';
     const SIDEBAR_EVENT = 'pa:policy-analysis-sidebar';
     // 版本徽标（左侧导航品牌块显示；随功能版本更新）
-    const VERSION = 'v1.4.2';
+    const VERSION = 'v1.5.5-qats.2';
     /* v1.3.2 固定缺省（文件解析/智能问答界面均不再暴露角色/模式/来源选择，一处定义两处使用）：
      * 政策解读缺省执行角色与分析模式 + 「仅知识库」保守来源（底线：严禁联网兜底；
      * QA 附件经 policy_extract 读文件、无附件为模型知识作答，检索行为受指令约束）。 */
@@ -62,6 +65,10 @@ window.__ModuleLoader__.load({
     const FIXED_SOURCE = 'knowledge_only';
     /* v1.3.2 跨页恢复标记的 sessionStorage key（记录进行中解析 jobId/recordId/fileName/startedAt） */
     const ACTIVE_PARSE_KEY = 'pa-active-parse';
+    /* paBg-20261005：智能问答后台续跑恢复（宿主在客户端断开后仍自主跑完并落库） */
+    const QA_RECOVERY_KEY = 'pa-qa-recovery-v1'; // 与既有 sessionStorage key 同名，兼容旧回执
+    const QA_RECOVER_POLL_MS = 2500;             // 恢复轮询间隔（毫秒）
+    const QA_RECOVER_POLL_MAX = 300;             // 轮询上限 ≈12.5 分钟（覆盖宿主 10 分钟硬超时）
 
     /* ════════ 调色板（gov 蓝，参照原型 tailwind 配置；浅色回退基准，见下方 T 的 var() 回退值） ════════ */
     const C = {
@@ -82,43 +89,12 @@ window.__ModuleLoader__.load({
      * 正文阅读字号跟随 外观 的字号设置 --dsh-content-font-size（12-17px）。
      * 每处 var() 均带浅色回退值，令牌缺失时保持原型外观。 */
     const T = {
-      bgRoot: 'var(--dsw-alias-bg-module-platform, #f1f5f9)',
-      surface: 'var(--dsw-alias-bg-layer-1, #ffffff)',
-      surface2: 'var(--dsw-alias-bg-layer-2, #f8fafc)',
-      border: 'var(--dsw-alias-border-l2, #e2e8f0)',
-      borderSub: 'var(--dsw-alias-border-l1, #e2e8f0)',
-      text1: 'var(--dsw-alias-label-primary, #0f172a)',
-      text2: 'var(--dsw-alias-label-secondary, #475569)',
-      text3: 'var(--dsw-alias-label-tertiary, #94a3b8)',
-      accent: 'var(--pa-accent, #1a5f9e)',
-      accentStrong: 'var(--pa-accent-strong, #134879)',
-      accentSoft: 'var(--pa-accent-soft, #f0f5fa)',
-      accentSoftBorder: 'var(--pa-accent-soft-border, #e1ecf5)',
-      accentActive: 'var(--pa-accent-active, #f0f7ff)',
-      topbar: 'var(--pa-topbar, #0e3459)',
-      topbarInk: 'var(--pa-topbar-ink, #ffffff)',
-      topbarMuted: 'var(--pa-topbar-muted, #93c5fd)',
-      topbarPillBg: 'var(--pa-topbar-pill-bg, rgba(9,33,58,.6))',
-      topbarPillBorder: 'var(--pa-topbar-pill-border, rgba(26,95,158,.4))',
-      userBubble: 'var(--pa-user-bubble, #1a5f9e)',
-      warnBg: 'var(--pa-warn-bg, #fffbeb)',
-      warnBorder: 'var(--pa-warn-border, #fde68a)',
-      warnText: 'var(--pa-warn-text, #78350f)',
-      warnIcon: 'var(--pa-warn-icon, #d97706)',
-      warnAvatar: 'var(--pa-warn-avatar, #d97706)',
-      success: 'var(--pa-success, #059669)',
-      successSoft: 'var(--pa-success-soft, #ecfdf5)',
-      successBorder: 'var(--pa-success-border, #a7f3d0)',
-      successText: 'var(--pa-success-text, #065f46)',
-      successBanner: 'var(--pa-success-banner, #d1fae5)',
-      infoBg: 'var(--pa-info-bg, #eff6ff)',
-      infoBorder: 'var(--pa-info-border, #bfdbfe)',
-      infoInk: 'var(--pa-info-ink, #1d4ed8)',
-      codeBg: 'var(--pa-code-bg, #0f172a)',
-      codeText: 'var(--pa-code-text, #e2e8f0)',
-      avatarMe: 'var(--pa-avatar-me, #cbd5e1)',
-      avatarMeText: 'var(--pa-avatar-me-text, #334155)',
-      contentFont: 'var(--dsh-content-font-size, 12px)',
+      bgRoot:'#f4f6f9',surface:'#ffffff',surface2:'#f8fafc',border:'#e6eaf1',borderSub:'#e6eaf1',
+      text1:'#2a3342',text2:'#5f6b7e',text3:'#8b96a8',accent:'#2563eb',accentStrong:'#1d4ed8',accentInk:'#fff',
+      accentSoft:'#eaf1ff',accentSoftBorder:'#d9e5ff',accentActive:'#eaf1ff',topbar:'#fff',topbarInk:'#2a3342',topbarMuted:'#5f6b7e',topbarPillBg:'#f8fafc',topbarPillBorder:'#e6eaf1',
+      userBubble:'#eaf1ff',warnBg:'#fff8e8',warnBorder:'#f4e1b8',warnText:'#a16b13',warnIcon:'#a16b13',warnAvatar:'#a16b13',
+      success:'#16a34a',successSoft:'#e8f7ec',successBorder:'#c8eacc',successText:'#15803d',successBanner:'#e8f7ec',infoBg:'#eaf1ff',infoBorder:'#d9e5ff',infoInk:'#2563eb',
+      codeBg:'#111b2e',codeText:'#afc4e8',avatarMe:'#eaf1ff',avatarMeText:'#2563eb',contentFont:'14px',
     };
 
     /* ════════ 枚举（与 Host 半统一） ════════ */
@@ -153,6 +129,7 @@ window.__ModuleLoader__.load({
     const ZH = {
       panel: '政策解读',
       appTitle: '政策解读',
+      navWorkspace: '政策工作区',
       appSub: '政务辅助 · Agent v1.0',
       brandMark: '政',
       backHome: '返回主页',
@@ -456,6 +433,7 @@ window.__ModuleLoader__.load({
     const EN = {
       panel: 'Policy Analysis',
       appTitle: 'Policy Analysis',
+      navWorkspace: 'Policy workspace',
       appSub: 'Gov Assistant · Agent v1.0',
       brandMark: '政',
       backHome: 'Back to Home',
@@ -890,7 +868,7 @@ window.__ModuleLoader__.load({
       '  --pa-tint-rose-bg: #fff1f2; --pa-tint-rose-border: #fecaca; --pa-tint-rose-chip: #e11d48; --pa-tint-rose-title: #881337;',
       '  --pa-tint-blue-bg: #eff6ff; --pa-tint-blue-border: #bfdbfe; --pa-tint-blue-chip: #2563eb; --pa-tint-blue-title: #0f172a;',
       '  --pa-head-b-bg: #faf5ff; --pa-head-b-color: #7e22ce; --pa-head-b-border: #e9d5ff; }',
-      'body[data-ds-dark-theme] .pa-root { --pa-topbar: #0b2238; --pa-topbar-ink: #ffffff; --pa-topbar-muted: #7fb4e8;',
+      '.pa-unused-dark-root { --pa-topbar: #0b2238; --pa-topbar-ink: #ffffff; --pa-topbar-muted: #7fb4e8;',
       '  --pa-topbar-pill-bg: rgba(4,14,26,.5); --pa-topbar-pill-border: rgba(77,163,224,.35);',
       '  --pa-accent: #4da3e0; --pa-accent-strong: #7cb8ee; --pa-accent-ink: #0b2238; --pa-accent-ring: rgba(77,163,224,.28);',
       '  --pa-accent-soft: #10243c; --pa-accent-soft-border: #1d4a73; --pa-accent-active: #0d2540;',
@@ -964,11 +942,31 @@ window.__ModuleLoader__.load({
       '@keyframes pa-qablink { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }',
       '.pa-qadel { opacity: 0; transition: opacity .12s; }',
       '.pa-qasession:hover .pa-qadel, .pa-qadel-on { opacity: 1; }',
-      /* ── v1.4.0 抽屉加载 spinner ── */
+      /* 对齐会议助手 mt-rail、mt-brand、mt-railnav、mt-railitem 的尺寸和主题令牌。 */
+      '.pa-root { position: relative; }',
+      '.pa-module-nav{width:216px;flex:none;display:flex;flex-direction:column;background:var(--dsw-specific-sidebar-fill);border-right:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-secondary);overflow-y:auto;overflow-x:hidden;user-select:none}',
+      '.pa-railbrand{display:flex;align-items:center;gap:10px;padding:13px 15px;border-bottom:1px solid var(--dsw-alias-border-l1);flex:none}',
+      '.pa-railicon{width:34px;height:34px;flex:none;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:17px;color:#fff;background:linear-gradient(45deg,var(--dsw-static-blue-600),var(--dsw-static-deepseek-450));box-shadow:0 4px 12px rgba(37,99,235,.28)}',
+      '.pa-railname{font-size:14px;font-weight:750;color:var(--dsw-alias-label-primary);letter-spacing:.01em;white-space:nowrap}',
+      '.pa-railnav{flex:1;min-height:0;display:flex;flex-direction:column;gap:4px;padding:10px;overflow-y:auto}',
+      '.pa-railsection{padding:2px 10px 5px;font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--dsw-alias-label-tertiary)}',
+      '.pa-module-nav .pa-navitem{position:relative;display:flex;align-items:center;justify-content:flex-start;gap:9px;width:100%;border:none;background:none;color:var(--dsw-alias-label-secondary);padding:9px 11px;border-radius:10px;font-size:13px;font-weight:550;cursor:pointer;text-align:left;box-shadow:none}',
+      '.pa-module-nav .pa-navitem:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}',
+      '.pa-module-nav .pa-navitem-on,.pa-module-nav .pa-navitem-on:hover{background:var(--dsw-static-blue-600);color:#fff;font-weight:650;box-shadow:0 4px 12px rgba(37,99,235,.28)}',
+      '.pa-navicon{width:16px;height:16px;flex:none;display:inline-flex;align-items:center}.pa-navtxt{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+      '.pa-root.pa-cloud .pa-module-nav .pa-qa-subnav .pa-btn{background:none;border:0;box-shadow:none;color:var(--dsw-alias-label-secondary)}.pa-root.pa-cloud .pa-module-nav .pa-qa-subnav .pa-btn:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}',
+      '.pa-railstatus{margin:8px 10px 12px;padding:11px 12px;display:flex;gap:7px;align-items:center;border-radius:12px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1);font-size:10.5px;line-height:1.4}.pa-statusdot{width:6px;height:6px;flex:none;border-radius:50%}',
+      '.pa-module-menu,.pa-module-close,.pa-module-scrim{display:none}',
+      '.pa-module-nav .pa-navitem:focus-visible,.pa-module-nav .pa-qa-subnav button:focus-visible,.pa-module-close:focus-visible,.pa-module-menu:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}',
+      '@media(min-width:761px) and (max-width:900px){.pa-module-nav{width:60px}.pa-railbrand{justify-content:center;padding:10px 0}.pa-railname,.pa-railsection,.pa-railstatus,.pa-navtxt,.pa-qa-subnav{display:none!important}.pa-module-nav .pa-navitem{justify-content:center;padding:11px 0}}',
+      '@media(max-width:760px){.pa-root .pa-module-menu,.pa-root .pa-module-close{display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);min-width:32px;height:32px;cursor:pointer}.pa-root .pa-module-nav{position:absolute;left:0;top:0;bottom:0;z-index:32;width:min(220px,84vw)!important;max-width:none;box-shadow:0 10px 30px rgba(16,28,48,.2);transform:translateX(-110%);transition:transform .16s ease}.pa-root .pa-module-nav.is-open{transform:translateX(0)}.pa-root .pa-module-scrim{display:block;position:absolute;inset:0;z-index:31;background:rgba(16,28,48,.3);border:0;cursor:pointer}.pa-root .pa-proto-top{padding:12px 16px}.pa-root .pa-proto-top h1{font-size:18px}}',
+/* ── v1.4.0 抽屉加载 spinner ── */
       '.pa-spinner { width: 13px; height: 13px; flex-shrink: 0; border-radius: 50%;',
       '  border: 2px solid var(--dsw-alias-border-l2, #cbd5e1); border-top-color: var(--pa-accent, #1a5f9e);',
       '  animation: pa-spin 0.8s linear infinite; }',
       '@keyframes pa-spin { to { transform: rotate(360deg); } }',
+      '.pa-root .pa-chat-scroll{padding:20px;overflow:auto;max-height:560px;min-height:280px;flex:1;display:flex;flex-direction:column;gap:14px}.pa-root .pa-welcome{background:#fff;border:1px solid #e6eaf1;border-radius:12px;padding:14px;max-width:82%;font-size:13px;line-height:1.8;color:#5f6b7e}.pa-root .pa-chat-input{border-top:1px solid #e6eaf1;padding:12px 14px}.pa-root .pa-chat-input .pa-qa-tools{border:0;padding:0 0 10px}.pa-root .pa-chat-compose{display:flex;align-items:flex-end;gap:8px}.pa-root .pa-chat-compose textarea{flex:1;min-width:0;resize:vertical}.pa-root .pa-inline-status{padding:8px 14px;color:#a16b13;font-size:12px}.pa-root .pa-chat-card>div:last-child{min-height:0}',
+      "\n.pa-root.pa-cloud{--pa-accent:#2563eb;--pa-accent-strong:#1d4ed8;--pa-accent-soft:#eaf1ff;--pa-accent-soft-border:#d9e5ff;--pa-accent-active:#eaf1ff;--pa-user-bubble:#eaf1ff;--pa-topbar:#fff;--pa-topbar-ink:#2a3342;--pa-topbar-muted:#5f6b7e;font-family:system-ui,-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;color:#2a3342;font-size:14px;background:#f4f6f9}\n.pa-root.pa-cloud button{cursor:pointer}.pa-root.pa-cloud button:disabled{cursor:not-allowed;opacity:.5}.pa-root.pa-cloud button:focus-visible,.pa-root.pa-cloud summary:focus-visible{outline:2px solid #2563eb;outline-offset:3px}.pa-root.pa-cloud .pa-input{background:#fff;color:#2a3342;border:1px solid #e6eaf1;border-radius:8px;padding:9px 11px}.pa-root.pa-cloud .pa-btn{background:linear-gradient(135deg,#2563eb,#38bdf8);color:#fff;border-radius:9px;border:0;padding:10px 14px}.pa-root.pa-cloud .pa-ghostbtn{border:1px solid #e6eaf1;border-radius:8px;background:#fff;color:#5f6b7e;padding:6px 9px}\n.pa-root .pa-proto-top{position:relative;padding:20px 30px;display:flex;justify-content:space-between;gap:20px;align-items:center;background:linear-gradient(180deg,#fff,#fafcff);border-bottom:1px solid #e6eaf1;flex-shrink:0}.pa-root .pa-proto-top:after{content:'';position:absolute;bottom:0;left:0;right:0;height:2px;background:linear-gradient(135deg,#2563eb,#38bdf8)}.pa-root .pa-kicker{font-size:11px;text-transform:uppercase;color:#2563eb;letter-spacing:.16em;font-weight:700}.pa-root h1{font-size:22px;margin:5px 0}.pa-root .pa-proto-top p{font-size:12px;color:#5f6b7e;margin:0}.pa-root .pa-top-pills{display:flex;gap:8px;flex-wrap:wrap;font-size:11px}.pa-root .pa-top-pills span{border:1px solid #e6eaf1;background:#fff;border-radius:999px;padding:6px 10px}.pa-root .pa-warn-pill{color:#a16b13}.pa-root .pa-proto-nav{display:flex;gap:6px;padding:10px 30px;background:#fff;flex-shrink:0;border-bottom:1px solid #e6eaf1}.pa-root .pa-proto-nav button{border:0;background:transparent;padding:8px 15px;color:#5f6b7e;border-radius:8px;font-size:13px}.pa-root .pa-proto-nav .active{background:#eaf1ff;color:#2563eb;font-weight:600}\n.pa-root .pa-proto-page{width:100%;padding:22px 30px 44px;overflow:auto;position:relative;min-height:0;max-width:1240px;margin:0 auto}.pa-root .pa-parse-grid{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,5fr);gap:18px}.pa-root .pa-parse-left,.pa-root .pa-parse-right{display:flex;flex-direction:column;gap:14px;min-width:0}.pa-root .pa-step,.pa-root .pa-result-card,.pa-root .pa-log-card,.pa-root .pa-record-card,.pa-root .pa-chat-card{background:#fff;border:1px solid #e6eaf1;border-radius:14px;box-shadow:0 1px 3px rgba(17,27,46,.04),0 8px 24px rgba(17,27,46,.04)}.pa-root .pa-step{padding:18px}.pa-root h3{font-size:14px;margin:0;font-weight:650}.pa-root .pa-step h3{display:flex;align-items:center;gap:9px;margin-bottom:12px}.pa-root .pa-step h3 b{display:inline-flex;align-items:center;justify-content:center;background:#eaf1ff;color:#2563eb;width:24px;height:24px;border-radius:8px;font-size:12px}.pa-root .pa-step p{font-size:12px;line-height:1.7;margin:8px 0}.pa-root .pa-muted{color:#8b96a8;font-size:11px}.pa-root .pa-warn,.pa-root .pa-error{color:#a16b13}.pa-root .pa-dropbox{width:100%;min-height:145px;border:1px dashed #cbd5e1;border-radius:10px;background:#fafcff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:#5f6b7e}.pa-root .pa-dropbox:hover{border-color:#2563eb;background:#eaf1ff}.pa-root .pa-dropbox span{font-size:11px}.pa-root .pa-file-chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px}.pa-root .pa-file-chip{display:flex;gap:3px;align-items:center;border:1px solid #e6eaf1;border-radius:8px;max-width:100%;padding:4px;background:#f8fafc}.pa-root .pa-file-chip.active{border-color:#2563eb;background:#eaf1ff}.pa-root .pa-file-chip>button:first-child{border:0;background:transparent;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:#2563eb}.pa-root .pa-config-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.pa-root .pa-config-grid label{display:flex;flex-direction:column;gap:7px;font-size:12px;color:#5f6b7e}.pa-root .pa-start{width:100%;margin-top:16px}.pa-root .pa-card-head{display:flex;align-items:center;gap:10px;padding:15px 18px;border-bottom:1px solid #e6eaf1}.pa-root .pa-card-head h3{flex:1}.pa-root .pa-status{font-size:10px;border:1px solid #e6eaf1;border-radius:999px;padding:3px 8px;color:#5f6b7e}.pa-root .pa-result-empty{padding:48px 24px;color:#8b96a8;font-size:12px;text-align:center;min-height:250px;line-height:1.8}.pa-root .pa-structured{padding:16px 20px;font-size:13px;line-height:1.8}.pa-root .pa-structured h4{margin:0 0 12px;font-size:15px}.pa-root .pa-structured ol{padding-left:23px}.pa-root .pa-structured li{padding:7px 0}.pa-root .pa-structured blockquote{border-left:2px solid #d9e5ff;color:#5f6b7e;font-size:11px;margin:8px 0;padding-left:8px}.pa-root .pa-keywords{display:flex;gap:6px;flex-wrap:wrap}.pa-root .pa-keywords span{padding:3px 8px;border-radius:6px;background:#eaf1ff;color:#2563eb;font-size:11px}.pa-root .pa-log-card{overflow:hidden}.pa-root.pa-cloud .pa-term{background:#111b2e;color:#afc4e8;border:0!important;border-radius:14px}\n.pa-root .pa-more{position:relative;display:inline-block}.pa-root .pa-more>summary{cursor:pointer;list-style:none;padding:4px 8px;color:#5f6b7e}.pa-root .pa-more-menu{position:absolute;right:0;top:100%;z-index:30;min-width:170px;background:#fff;border:1px solid #e6eaf1;border-radius:10px;box-shadow:0 10px 30px #111b2e22;padding:6px;display:flex;flex-direction:column;gap:4px}.pa-root .pa-more-menu button{text-align:left;white-space:nowrap}.pa-root .pa-record-filters{display:flex;gap:9px;flex-wrap:wrap;align-items:center;padding:16px 18px;font-size:11px;color:#8b96a8}.pa-root .pa-record-filters>input:first-child{width:280px}.pa-root .pa-table-wrap{overflow:auto;min-height:230px;padding-bottom:100px}.pa-root .pa-table-wrap table{border-collapse:collapse;width:100%;min-width:800px;font-size:12px}.pa-root .pa-table-wrap th{padding:11px 15px;text-align:left;background:#fafcff;color:#5f6b7e;font-weight:600}.pa-root .pa-table-wrap td{padding:14px 15px;border-top:1px solid #e6eaf1;vertical-align:top}.pa-root .pa-table-wrap th:first-child{width:60px}.pa-root .pa-table-wrap td:last-child{white-space:nowrap}.pa-root .pa-record-empty{text-align:center;color:#8b96a8;padding:45px!important}\n.pa-root .pa-qa-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:18px;min-height:520px}.pa-root .pa-chat-card{display:flex;flex-direction:column;overflow:hidden;min-width:0}.pa-root .pa-chat-card>div:last-child{min-height:450px}.pa-root .pa-qa-gate{padding:10px 14px;background:#fff8e8;border-bottom:1px solid #f4e1b8;font-size:11px;color:#a16b13;display:flex;align-items:center;justify-content:space-between;gap:8px}.pa-root .pa-qa-tools{display:flex;align-items:center;gap:8px;padding:9px 14px;font-size:11px;flex-wrap:wrap;border-bottom:1px solid #e6eaf1}.pa-root .pa-qa-tools>.pa-model{margin-left:auto}.pa-root .pa-model{position:relative;display:inline-block;font-size:11px;color:#5f6b7e}.pa-root .pa-model>summary{cursor:pointer;padding:7px 10px;border:1px solid #e6eaf1;border-radius:8px;list-style:none;background:#fff}.pa-root .pa-model-menu{position:absolute;left:0;bottom:100%;z-index:40;min-width:250px;max-height:360px;overflow:auto;background:#fff;border:1px solid #e6eaf1;border-radius:10px;box-shadow:0 10px 30px #111b2e22;padding:6px}.pa-root .pa-model-menu button{display:block;width:100%;border:0;background:#fff;text-align:left;padding:8px 10px;color:#2a3342;border-radius:6px}.pa-root .pa-model-menu button:hover{background:#eaf1ff}.pa-root .pa-menu-title{padding:7px 10px;font-size:10px;color:#8b96a8}.pa-root .pa-config-grid .pa-model-menu{top:100%;bottom:auto}\n.pa-root .pa-local-overlay{position:fixed;inset:0;z-index:1000;background:#111b2e66;display:flex;align-items:center;justify-content:center;padding:20px}.pa-root .pa-local-dialog{background:#fff;border:1px solid #e6eaf1;border-radius:14px;padding:20px;width:min(560px,95vw);max-height:85vh;overflow:auto;display:flex;flex-direction:column;gap:13px;box-shadow:0 10px 30px #111b2e33}.pa-root .pa-local-dialog>label{display:flex;flex-direction:column;gap:6px;font-size:12px}.pa-root .pa-local-dialog p{font-size:12px;line-height:1.7}.pa-root .pa-report-dialog{width:min(900px,95vw);height:85vh}\n@media(max-width:1080px){.pa-root .pa-parse-grid,.pa-root .pa-qa-grid{grid-template-columns:1fr}}\n@media(max-width:860px){.pa-root .pa-proto-page{padding:16px}.pa-root .pa-proto-top{padding:16px;align-items:flex-start;flex-direction:column;gap:10px}.pa-root .pa-proto-nav{padding:8px 16px}.pa-root .pa-config-grid{grid-template-columns:1fr}.pa-root .pa-record-filters>input:first-child{width:100%}.pa-root .pa-qa-gate{align-items:flex-start}.pa-root .pa-model-menu{min-width:220px;max-width:80vw}}\n",
     ].join('\n');
 
     /* 左栏小节标签（uppercase 灰字） */
@@ -1010,10 +1008,41 @@ window.__ModuleLoader__.load({
       };
 
       /* ── 状态 ── */
-      const [role, setRole] = React.useState('business_execution');
-      const [mode, setMode] = React.useState('citation_verification');
-      const [source, setSource] = React.useState('web_only');
-      const [publicConfirmed, setPublicConfirmed] = React.useState(false);
+      const [role, setRole] = React.useState(FIXED_ROLE);
+      const [mode, setMode] = React.useState(FIXED_MODE);
+      const [source, setSource] = React.useState(FIXED_SOURCE);
+      const [configOpen, setConfigOpen] = React.useState(false);
+      const [packHealth, setPackHealth] = React.useState(null);
+      const [filePickerOpen, setFilePickerOpen] = React.useState(false);
+      const [fullReportOpen, setFullReportOpen] = React.useState(false);
+      const [pendingPreview,setPendingPreview]=React.useState(null);
+      const [previewConfirmed,setPreviewConfirmed]=React.useState(false);
+      const [recView,setRecView]=React.useState('completed');
+      const moduleRef=React.useRef(null);
+      React.useEffect(()=>{if(!configOpen&&!filePickerOpen&&!fullReportOpen&&!pendingPreview)return;const old=document.activeElement;const modal=moduleRef.current&&moduleRef.current.querySelector('.pa-local-overlay');const first=modal&&modal.querySelector('button,input,select');if(first)first.focus();return()=>{if(old&&old.isConnected)old.focus();};},[configOpen,filePickerOpen,fullReportOpen,pendingPreview]);
+      React.useEffect(()=>{let alive=true;fetch('/api/policy-analysis',{credentials:'same-origin'}).then(r=>r.ok?r.json():Promise.reject()).then(v=>{if(alive)setPackHealth(v);}).catch(()=>{if(alive)setPackHealth({ok:false});});return()=>{alive=false;};},[]);
+      const [parseModel, setParseModel] = React.useState(null);
+      const [parseDepth, setParseDepth] = React.useState('standard');
+      const [fileTasks, setFileTasks] = React.useState({});
+      const tasksRef = React.useRef({});
+      const queueFilesRef=React.useRef([]);
+      const queueBusyRef = React.useRef(false);
+      const currentQueueFileRef = React.useRef(null);
+      const updateFileTask = (key, patch) => {
+        if (!key) return;
+        tasksRef.current = Object.assign({}, tasksRef.current, {[key]:Object.assign({},tasksRef.current[key],patch)});
+        setFileTasks(tasksRef.current);
+        try{sessionStorage.setItem('pa-prototype-queue-v1',JSON.stringify({files:queueFilesRef.current,tasks:tasksRef.current}));return true;}catch{return false;}
+      };
+      const selectParseFile = (f) => {
+        if (queueBusyRef.current) return;
+        setActiveFileKey(f.key);
+        const task = tasksRef.current[f.key];
+        if (task) { setParseJobId(task.jobId || null); setParseRecord(task.record || null); setParseResult((task.record && (task.record.reportMarkdown || task.record.result)) || task.result || ''); setParseResultState(task.status === 'done' ? 'done' : task.status === 'failed' ? 'error' : 'idle'); setParseLog(task.logs || []); }
+        else { setParseRecord(null); setParseResult(''); setParseResultState('idle'); setParseLog([]); }
+      };
+      /* PA-QALAYOUT-20261005：默认已勾选「我确认当前问答所用材料全部为已公开政策材料」 */
+      const [publicConfirmed, setPublicConfirmed] = React.useState(true);
       const [messages, setMessages] = React.useState([]);
       const [activeEvidence, setActiveEvidence] = React.useState(null);
       const [activeScenario, setActiveScenario] = React.useState(null);
@@ -1025,7 +1054,7 @@ window.__ModuleLoader__.load({
       const [sendState, setSendState] = React.useState(null);
       /* 附件上传状态：files 仅存 {key,name,sizeBytes,path,ext} 元数据（不驻留文件内容）；
        * uploadMsg 为单条上传结果提示（错误/说明）；dragOver 控制拖拽高亮遮罩。 */
-      const [files, setFiles] = React.useState([]);
+      const [files, setFiles] = React.useState([]);queueFilesRef.current=files;
       const [uploadBusy, setUploadBusy] = React.useState(false);
       const [uploadMsg, setUploadMsg] = React.useState(null); // null | {kind:'error', text}
       const [dragOver, setDragOver] = React.useState(false);
@@ -1036,6 +1065,7 @@ window.__ModuleLoader__.load({
       /* ── 三页签工作台状态（页签常挂载，display 切换，避免丢状态/断 SSE） ──
        * tab：'parse' 文件解析（默认） | 'records' 解析归档记录 | 'console' 任务简报 */
       const [tab, setTab] = React.useState('parse');
+      const [moduleNavOpen, setModuleNavOpen] = React.useState(false);
       /* 页签1 文件解析：activeFileKey 选中上传文件；parseLog 过程日志 {ts,text,kind}；
        * parseResult 累积正文；parseResultState idle|streaming|done|error；
        * parseRecord 解析完成（done 帧）返回的记录对象；archive* 为归档对话框一组状态。 */
@@ -1104,6 +1134,9 @@ window.__ModuleLoader__.load({
       const [qaPendingDeleteId, setQaPendingDeleteId] = React.useState(null); // 会话两段式删除（3 秒恢复）
       const [qaArchiving, setQaArchiving] = React.useState(false);
       const qaSendAbortRef = React.useRef(null); // qa 流式中止控制器
+      /* paBg-20261005：跨页恢复轮询（面板卸载即停；回执留在 sessionStorage，切回自动续跑） */
+      const qaRecoverTimerRef = React.useRef(null);
+      const qaRecoverTicksRef = React.useRef(0);
       const qaDelTimerRef = React.useRef(null); // 会话两段式删除恢复计时器
       const qaIdRef = React.useRef(0); // qa 消息 id 计数
       const qaSeqRef = React.useRef(0); // qa 附件 chip key 计数
@@ -1111,9 +1144,69 @@ window.__ModuleLoader__.load({
       const qaFlowRef = React.useRef(null); // 消息列表容器（滚底）
       const qaStickRef = React.useRef(true); // 用户未上滚时才自动滚底
       const qaInputRef = React.useRef(null); // 输入框（@文件问答跳转后聚焦）
+      /* PA-QALAYOUT-20261005：输入区高度（px）。底边固定贴底，上边由 .pa-resize-grip 拖拽改变；
+       * 高度按浏览器本地记忆（localStorage），刷新后沿用；上限随卡片高度动态收敛，避免挤压消息区。 */
+      const PA_COMPOSE_H_MIN = 96;
+      const PA_COMPOSE_H_DEFAULT = 104;
+      const [qaComposeH, setQaComposeH] = React.useState(() => {
+        try {
+          const v = Number(localStorage.getItem('pa-qa-compose-h-v1'));
+          if (Number.isFinite(v) && v >= PA_COMPOSE_H_MIN && v <= 900) return v;
+        } catch { /* 隐私模式等：回落默认 */ }
+        return PA_COMPOSE_H_DEFAULT;
+      });
+      const qaComposeHRef = React.useRef(qaComposeH);
+      const qaResizeRef = React.useRef(null); // {startY,startH,maxH,move,up}
+      const qaResizeActiveRef = React.useRef(false);
+      const [qaResizing, setQaResizing] = React.useState(false);
+      const qaComposeMax = () => {
+        const card = qaFlowRef.current && qaFlowRef.current.closest ? qaFlowRef.current.closest('.pa-chat-card') : null;
+        const cardH = card ? card.getBoundingClientRect().height : 620;
+        return Math.max(200, Math.round(cardH - 232)); // 预留门禁条/标题/工具条/提示行 + 消息区最小高度
+      };
+      const applyQaComposeH = (h) => { qaComposeHRef.current = h; setQaComposeH(h); };
+      const persistQaComposeH = () => { try { localStorage.setItem('pa-qa-compose-h-v1', String(qaComposeHRef.current)); } catch { /* 忽略 */ } };
+      const endQaComposeResize = () => {
+        const st = qaResizeRef.current;
+        if (st) { window.removeEventListener('pointermove', st.move); window.removeEventListener('pointerup', st.up); window.removeEventListener('pointercancel', st.up); }
+        qaResizeRef.current = null;
+        if (qaResizeActiveRef.current) { qaResizeActiveRef.current = false; setQaResizing(false); persistQaComposeH(); }
+      };
+      const startQaComposeResize = (e) => {
+        if (e.button !== undefined && e.button !== 0) return;
+        if (qaResizeRef.current) return;
+        e.preventDefault();
+        const startY = e.clientY;
+        const startH = qaComposeHRef.current;
+        const maxH = qaComposeMax();
+        const move = (ev) => {
+          // 上边向上拖 → 变高；向下拖 → 变矮。底边始终贴底，因此高度完全由位移决定。
+          const next = Math.min(maxH, Math.max(PA_COMPOSE_H_MIN, Math.round(startH + (startY - ev.clientY))));
+          applyQaComposeH(next);
+        };
+        const up = () => endQaComposeResize();
+        qaResizeRef.current = { startY, startH, maxH, move, up };
+        qaResizeActiveRef.current = true;
+        setQaResizing(true);
+        window.addEventListener('pointermove', move);
+        window.addEventListener('pointerup', up);
+        window.addEventListener('pointercancel', up);
+      };
+      const nudgeQaComposeH = (delta) => {
+        const next = Math.min(qaComposeMax(), Math.max(PA_COMPOSE_H_MIN, qaComposeHRef.current + delta));
+        applyQaComposeH(next);
+        persistQaComposeH();
+      };
+      React.useEffect(() => () => {
+        const st = qaResizeRef.current;
+        if (st) { window.removeEventListener('pointermove', st.move); window.removeEventListener('pointerup', st.up); window.removeEventListener('pointercancel', st.up); }
+        qaResizeRef.current = null;
+      }, []);
       /* v1.4.0 可选模型：qaModels=模型目录（GET /models）；qaModel=当前选择 {provider,model}（null=系统默认） */
       const [qaModels, setQaModels] = React.useState({ state: 'idle', groups: [], def: null });
       const [qaModel, setQaModel] = React.useState(null);
+      const [qaBackgroundState,setQaBackgroundState]=React.useState('idle');
+      const qaPendingRef=React.useRef(null);
 
       const flowRef = React.useRef(null);
       const idRef = React.useRef(0);
@@ -1129,12 +1222,33 @@ window.__ModuleLoader__.load({
       const activePanelId = typeof usePanelInfo === 'function'
         ? usePanelInfo(sel => (sel ? sel.activePanelId : null))
         : null;
+      const queueHydratedRef = React.useRef(false);
       React.useEffect(() => {
-        if (activePanelId !== PANEL_ID || typeof window === 'undefined') return;
         try {
-          window.dispatchEvent(new CustomEvent(SIDEBAR_EVENT, { detail: { collapse: true } }));
-        } catch { /* 派发失败不影响面板渲染 */ }
-      }, [activePanelId]);
+          const stored = JSON.parse(sessionStorage.getItem('pa-prototype-queue-v1') || 'null');
+          if(stored && Array.isArray(stored.files) && stored.tasks && typeof stored.tasks === 'object') {
+            setFiles(stored.files.filter(f=>f && typeof f.key==='string' && typeof f.path==='string'));
+            uploadSeqRef.current=stored.files.reduce((max,f)=>Math.max(max,Number(String(f.key).replace(/^f/,''))||0),0);
+            const restored={};for(const [key,task] of Object.entries(stored.tasks)){const t={...task};if(!t.jobId&&['submitting','running','paused'].includes(t.status)){t.status='uncertain';t.error='刷新前提交回执未保存，请查归档；禁止重复提交';}else if(t.status==='submitting'&&t.jobId){t.status='paused';}restored[key]=t;}
+            tasksRef.current=restored;setFileTasks(restored);
+          }
+        } catch {}
+      }, []);
+      React.useEffect(() => {
+        if (!queueHydratedRef.current) {queueHydratedRef.current=true;return;}
+        try {sessionStorage.setItem('pa-prototype-queue-v1',JSON.stringify({files,tasks:fileTasks}));} catch {}
+      }, [files,fileTasks]);
+      /* PA-QALAYOUT-20261005：材料签名去掉 tab —— 看哪个视图不改变“材料”，切视图不再撤销公开性确认；
+       * 路径取三处并集（解析待办 ∪ 问答附件 ∪ 已发送问题带入的附件），任一处真实变化仍撤销确认。
+       * 首帧不下发撤销：保留 publicConfirmed 的「默认已确认」初值。 */
+      const materialSignature = JSON.stringify({source,role,mode,paths:[...files.map(f=>f.path),...qaFiles.map(f=>f.path),...qaMessages.filter(m=>m.role==='user').flatMap(m=>(m.files||[]).map(f=>f.path||f.name))].sort()});
+      const materialSigRef = React.useRef(null);
+      React.useEffect(()=>{
+        if(materialSigRef.current===null){materialSigRef.current=materialSignature;return;}
+        if(materialSigRef.current===materialSignature)return;
+        materialSigRef.current=materialSignature;
+        setPublicConfirmed(false);
+      },[materialSignature]);
 
       /* 新消息入列 */
       const pushMsg = (partial) => {
@@ -1521,12 +1635,15 @@ window.__ModuleLoader__.load({
       /* 顺序上传（避免并发写盘与提示闪烁）；fileList 可为 FileList 或数组；
        * target 透传 uploadOne（'qa'=智能问答附件） */
       const handleFiles = async (fileList, target) => {
+        if (queueBusyRef.current || qaSendBusy) {setUploadMsg({kind:'error',text:'任务运行中材料已冻结，请等待后上传'});return;}
         const arr = [];
         for (let i = 0; i < (fileList ? fileList.length : 0); i++) arr.push(fileList[i]);
         for (const f of arr) await uploadOne(f, target);
       };
 
       const removeFile = (key) => {
+        const task=tasksRef.current[key];
+        if(queueBusyRef.current || (task && task.jobId && !['done','failed'].includes(task.status))) {setParseMsg({kind:'info',text:'任务尚在后台运行；不可移除或冒称取消'});return;}
         setFiles((list) => list.filter((f) => f.key !== key));
         setActiveFileKey((k) => (k === key ? null : k)); // 移除的是解析页签选中文件时同步清空选中态
         // 注：仅从本次会话附件清单移除；磁盘暂存文件保留（与审计留痕一致，不静默删除用户数据）
@@ -1569,13 +1686,30 @@ window.__ModuleLoader__.load({
         dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
         if (dragDepthRef.current === 0) setDragOver(false);
       };
+      /* PAC-DROP-20261005：拖拽收集——文件夹递归展开（知识库同款）；返回 File[] 数组，handleFiles 按 length+索引消费 */
+      const paCollectEntries = (dt) => {
+        const out = [];
+        const readAll = (reader) => new Promise((res) => { const acc = []; const step = () => reader.readEntries((ents) => { if (!ents || !ents.length) return res(acc); acc.push(...ents); step(); }, () => res(acc)); step(); });
+        const walk = async (entry, path) => {
+          if (!entry) return;
+          if (entry.isFile) {
+            const f = await new Promise((res) => entry.file((x) => res(x), () => res(null)));
+            if (f) { try { Object.defineProperty(f, 'webkitRelativePath', { value: path + f.name, configurable: true }); } catch (err) { /* 只读属性则忽略 */ } out.push(f); }
+            return;
+          }
+          if (entry.isDirectory) { const kids = await readAll(entry.createReader()); for (const k of kids) await walk(k, path + entry.name + '/'); }
+        };
+        const items = dt && dt.items ? Array.prototype.slice.call(dt.items) : [];
+        const entries = items.map((it) => (it && it.kind === 'file' && it.webkitGetAsEntry ? it.webkitGetAsEntry() : null)).filter(Boolean);
+        if (!entries.length) return Promise.resolve(dt ? Array.prototype.slice.call(dt.files || []) : []);
+        return (async () => { for (const e of entries) await walk(e, ''); return out; })();
+      };
       const onDrop = (e) => {
         if (!hasFilesInDT(e)) return;
         e.preventDefault();
         dragDepthRef.current = 0;
         setDragOver(false);
-        const fl = e.dataTransfer ? e.dataTransfer.files : null;
-        if (fl && fl.length) void handleFiles(fl);
+        void paCollectEntries(e.dataTransfer).then((arr) => { if (arr.length) void handleFiles(arr); }); /* PAC-DROP-20261005 */
       };
 
       /* 智能问答视图的拖拽落点：复用悬停态与上传管线，来源标记 'qa'（附件进 qaFiles 待附列表） */
@@ -1584,8 +1718,7 @@ window.__ModuleLoader__.load({
         e.preventDefault();
         dragDepthRef.current = 0;
         setDragOver(false);
-        const fl = e.dataTransfer ? e.dataTransfer.files : null;
-        if (fl && fl.length) void handleFiles(fl, 'qa');
+        void paCollectEntries(e.dataTransfer).then((arr) => { if (arr.length) void handleFiles(arr, 'qa'); }); /* PAC-DROP-20261005 */
       };
 
       /* ════════ 页签1「文件解析」：上传 → 开始解析 → SSE 过程/结果 → 归档 ════════ */
@@ -1597,7 +1730,10 @@ window.__ModuleLoader__.load({
         return pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds());
       };
       const pushParseLog = (text, kind) => {
-        setParseLog((list) => list.concat([{ ts: nowHMS(), text: String(text), kind: kind || 'info' }]));
+        const entry={ts:nowHMS(),text:String(text),kind:kind||'info'};
+        setParseLog(list=>list.concat([entry]));
+        const key=currentQueueFileRef.current;
+        if(key) updateFileTask(key,{logs:((tasksRef.current[key] && tasksRef.current[key].logs)||[]).concat([entry])});
       };
 
       /* 剪贴板统一入口（简报复制 / 路径复制 / 结果复制共用；失败降级隐藏 textarea） */
@@ -1648,190 +1784,96 @@ window.__ModuleLoader__.load({
        * 「停止」只 abort 前端接收（服务端继续解析完并自动入档记录）。
        * v1.3.2：请求体固定缺省 FIXED_*（界面不再暴露选择）；发起成功后把 jobId/recordId
        * 写入 sessionStorage（ACTIVE_PARSE_KEY），供面板重挂载时跨页恢复（再次开始解析会覆盖）。 */
-      const startParse = async () => {
-        if (parseBusy) return;
-        const f = activeFile;
-        if (!f) {
-          setParseMsg({ kind: 'error', text: tr('parseNoFile') });
-          return;
-        }
-        if (!publicConfirmed) {
-          setParseMsg({ kind: 'error', text: tr('parseGateNeed') });
-          pushMsg({ kind: 'gate' }); // 消息落在「任务简报」页签的消息流，解析页签同步给内联提示
-          return;
-        }
-        setParseMsg(null);
-        setResultCopyState(null);
-        setParseLog([]);
-        setParseResult('');
-        setParseThinking('');
-        setParseRecord(null);
-        setParseResultState('streaming');
-        setParseBusy(true);
-        pushParseLog(tr('parseLogStart') + f.name);
-        const ctrl = new AbortController();
-        parseAbortRef.current = ctrl;
+      const readQueuedStream = async (jobId, ctrl, resume) => {
+        const key = currentQueueFileRef.current;
+        let result = '', buffer = '', terminal = false;
         try {
-          const resp = await fetch('/api/policy-analysis/parse', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            credentials: 'same-origin',
-            // v1.3.2 固定缺省：政策解读缺省角色/模式 + 仅知识库保守来源（界面已不暴露选择）
-            body: JSON.stringify({
-              path: f.path,
-              fileName: f.name,
-              source: FIXED_SOURCE,
-              role: FIXED_ROLE,
-              mode: FIXED_MODE,
-              publicConfirmed: true,
-            }),
-            signal: ctrl.signal,
-          });
-          if (!resp.ok) {
-            let reason = 'HTTP ' + resp.status;
-            try {
-              const d = await resp.json();
-              if (d && d.message) reason = d.message;
-            } catch { /* 非 JSON 错误体 */ }
-            throw new Error(reason);
-          }
-          const data = await resp.json();
-          if (!data || data.ok !== true || !data.jobId) {
-            throw new Error((data && data.message) || 'invalid parse response');
-          }
-          setParseJobId(data.jobId);
-          pushParseLog(tr('parseLogJob') + data.jobId);
-          if (data.recordId) pushParseLog(tr('parseLogRecord') + data.recordId);
-          // 登记进行中解析（跨页/重开面板恢复用）
+          const response = await fetch('/api/policy-analysis/parse/events?jobId=' + encodeURIComponent(jobId), {credentials:'same-origin',signal:ctrl.signal});
+          if (!response.ok || !response.body) throw new Error('解析事件流不可用：HTTP ' + response.status);
+          const reader = response.body.getReader(), decoder = new TextDecoder();
           try {
-            window.sessionStorage.setItem(ACTIVE_PARSE_KEY, JSON.stringify({
-              jobId: data.jobId,
-              recordId: data.recordId || null,
-              fileName: f.name,
-              startedAt: Date.now(),
-            }));
-          } catch { /* sessionStorage 不可用时不影响解析 */ }
-          // 建 SSE 过程流（同一 AbortController：「停止」一并中断 POST/SSE）
-          await runParseStream(data.jobId, ctrl, false);
-        } catch (e) {
-          if (e && e.name === 'AbortError') {
-            // 「停止」只中断前端接收；服务端继续解析完并入档记录（提示文案说明这一点）
-            setParseThinking('');
-            setParseResultState('idle');
-            pushParseLog(tr('parseStopHint'), 'warn');
-            setParseMsg({ kind: 'info', text: tr('parseStopHint') });
-          } else {
-            const msgText = String((e && e.message) || e);
-            pushParseLog(msgText, 'error');
-            setParseThinking('');
-            setParseResultState('error');
-            setParseMsg({ kind: 'error', text: tr('parseReqFail') + msgText });
-          }
-        } finally {
-          setParseBusy(false);
-          parseAbortRef.current = null;
+            while (!terminal) {
+              const chunk = await reader.read(); if (chunk.done) break;
+              buffer += decoder.decode(chunk.value,{stream:true});
+              let end;
+              while ((end = buffer.indexOf('\n\n')) >= 0) {
+                const frame = buffer.slice(0,end); buffer = buffer.slice(end+2);
+                for (const line of frame.split('\n')) {
+                  if (!line.startsWith('data:')) continue;
+                  let event; try { event = JSON.parse(line.slice(5)); } catch {continue;}
+                  if (event.type === 'status') { pushParseLog(event.text || '状态更新'); if(event.generationModel) updateFileTask(key,{generationModel:event.generationModel}); }
+                  else if (event.type === 'tool') pushParseLog('工具：'+event.name,'tool');
+                  else if (event.type === 'thinking') setParseThinking(v=>v+(event.text||''));
+                  else if (event.type === 'delta') {result += event.text || '';setParseResult(result);updateFileTask(key,{result});}
+                  else if (event.type === 'done' && event.record && event.record.status === 'done') {
+                    terminal = true; const record = event.record;
+                    setParseRecord(record);setParseResult(record.reportMarkdown || record.result || '');setParseResultState('done');setParseThinking('');
+                    updateFileTask(key,{status:'done',record,result:record.reportMarkdown || record.result || ''});
+                    recordsStaleRef.current = true;clearActiveParseKey();pushParseLog('完成（已保存独立记录，待人工复核）');
+                    return record;
+                  } else if (event.type === 'error') {terminal=true;updateFileTask(key,{status:'failed',error:event.message||'解析失败'});throw new Error(event.message || '解析失败');}
+                }
+              }
+            }
+            throw new Error('连接结束但未收到完成事件；保留原任务，可恢复接收');
+          } finally { await reader.cancel().catch(()=>{}); }
+        } catch (error) {
+          const knownFailed = key && tasksRef.current[key] && tasksRef.current[key].status === 'failed';
+          updateFileTask(key,{status:knownFailed?'failed':'paused',error:error.name === 'AbortError'?'已停止接收；后台任务未取消':error.message});
+          setParseThinking('');setParseResultState(knownFailed?'error':'paused');
+          setParseMsg({kind:knownFailed?'error':'info',text:error.name === 'AbortError'?'已停止接收，后台继续；点击开始可恢复原任务':error.message});
+          throw error;
         }
+      };
+
+      const startParse = async () => {
+        if (queueBusyRef.current || !files.length || !publicConfirmed) return;
+        const snapshot = files.slice();
+        const options = {source,role,mode,depth:parseDepth,publicConfirmed:true,...(parseModel ? {provider:parseModel.provider,model:parseModel.model}: {})};
+        queueBusyRef.current = true;setParseBusy(true);setParseMsg(null);
+        try {
+          for (const file of snapshot) {
+            const task = tasksRef.current[file.key] || {};
+            if (task.status === 'done' || task.status === 'failed') continue;
+            if(task.status==='uncertain'){setParseMsg({kind:'error',text:'原任务提交回执丢失，请在归档中检查；不会自动重复提交'});break;}
+            currentQueueFileRef.current = file.key;setActiveFileKey(file.key);setParseLog(task.logs || []);setParseResult('');setParseRecord(null);setParseThinking('');setParseResultState('streaming');
+            const ctrl = new AbortController();parseAbortRef.current = ctrl;
+            updateFileTask(file.key,{status:'running',options:task.options || options});
+            try {
+              let jobId = task.jobId, recordId = task.recordId;
+              if (recordId) {
+                const check = await fetch('/api/policy-analysis/records/'+encodeURIComponent(recordId),{credentials:'same-origin',signal:ctrl.signal});
+                const data = await check.json();if(!check.ok||!data.ok) throw new Error(data.message || '原任务记录不可用；不重复提交');
+                if (data.record.status !== 'parsing') {
+                  updateFileTask(file.key,{status:data.record.status,record:data.record,result:data.record.reportMarkdown||data.record.result||''});
+                  setParseRecord(data.record);setParseResult(data.record.reportMarkdown||data.record.result||'');setParseResultState(data.record.status==='done'?'done':'error');continue;
+                }
+              }
+              if (!jobId) {
+                if(!updateFileTask(file.key,{status:'submitting'})){updateFileTask(file.key,{status:'uncertain',error:'提交标记未能可靠保存，未发送请求'});setSubmitMsg({kind:'error',text:'本地回执存储不可用，未发送解析请求'});break;}
+                const response = await fetch('/api/policy-analysis/parse',{method:'POST',credentials:'same-origin',headers:{'content-type':'application/json'},body:JSON.stringify({...options,path:file.path,fileName:file.name}),signal:ctrl.signal});
+                const data = await response.json();if(!response.ok||!data.ok||!data.jobId) {updateFileTask(file.key,{status:'failed'});throw new Error(data.message || '创建任务失败');}
+                jobId=data.jobId;recordId=data.recordId;updateFileTask(file.key,{status:'running',jobId,recordId,generationModel:data.record && data.record.generationModel});
+              }
+              setParseJobId(jobId);pushParseLog('['+file.name+'] 任务 '+jobId);
+              try {sessionStorage.setItem(ACTIVE_PARSE_KEY,JSON.stringify({jobId,recordId,fileName:file.name,fileKey:file.key,startedAt:Date.now()}));} catch {}
+              await readQueuedStream(jobId,ctrl,false);
+            } catch(error) {
+              const status = tasksRef.current[file.key] && tasksRef.current[file.key].status;
+              if (status === 'submitting') {updateFileTask(file.key,{status:'uncertain',error:'提交回执丢失，请查归档，不能重复提交'});break;}
+              if (status === 'paused' || error.name === 'AbortError') break;
+              updateFileTask(file.key,{status:'failed',error:error.message});setParseMsg({kind:'error',text:file.name+'：'+error.message});setParseResultState('error');
+            }
+          }
+        } finally {queueBusyRef.current=false;currentQueueFileRef.current=null;parseAbortRef.current=null;setParseBusy(false);}
       };
 
       /* v1.3.2 SSE 过程流（自 startParse 抽出，发起/跨页恢复共用）：
        * GET /parse/events?jobId= 建 SSE；服务端支持事件重放（≤5000 帧）+ 15s 心跳，
        * 重连即重放补齐已发生日志并继续实时流式（delta 从头累积，结果完整）。
        * resume=true 时错误提示改用「解析中断」口径，并清除恢复标记。 */
-      const runParseStream = async (jobId, ctrl, resume) => {
-        let resultText = '';
-        let thinkText = '';
-        const failPrefix = resume ? tr('parseInterrupted') : tr('parseReqFail');
-        try {
-          const evResp = await fetch('/api/policy-analysis/parse/events?jobId=' + encodeURIComponent(jobId), {
-            credentials: 'same-origin',
-            signal: ctrl.signal,
-          });
-          if (!evResp.ok || !evResp.body) {
-            let reason = 'HTTP ' + evResp.status;
-            try {
-              const d = await evResp.json();
-              if (d && d.message) reason = d.message;
-            } catch { /* 非 JSON 错误体 */ }
-            throw new Error(reason);
-          }
-          const reader = evResp.body.getReader();
-          const dec = new TextDecoder();
-          let buf = '';
-          let closed = false;
-          for (;;) {
-            const r = await reader.read();
-            if (r.done) break;
-            buf += dec.decode(r.value, { stream: true });
-            let idx;
-            while ((idx = buf.indexOf('\n\n')) >= 0) {
-              const raw = buf.slice(0, idx);
-              buf = buf.slice(idx + 2);
-              for (const line of raw.split('\n')) {
-                if (line.charCodeAt(0) === 58 /* ':' */) continue; // SSE 注释/心跳帧
-                if (!line.startsWith('data:')) continue;
-                let ev = null;
-                try { ev = JSON.parse(line.slice(5).trim()); } catch { continue; }
-                if (!ev || typeof ev !== 'object') continue;
-                if (ev.type === 'status' && typeof ev.text === 'string' && ev.text) {
-                  pushParseLog(ev.text);
-                } else if (ev.type === 'tool' && ev.name) {
-                  pushParseLog(tr('parseToolCalling') + ' ' + ev.name, 'tool');
-                } else if (ev.type === 'thinking' && typeof ev.text === 'string') {
-                  thinkText += ev.text;
-                  setParseThinking(thinkText);
-                } else if (ev.type === 'delta' && typeof ev.text === 'string') {
-                  resultText += ev.text;
-                  setParseResult(resultText);
-                } else if (ev.type === 'done') {
-                  const rec = ev.record && typeof ev.record === 'object' ? ev.record : null;
-                  setParseRecord(rec);
-                  // 流式正文比最终结果短时用完整结果兜底
-                  if (rec && typeof rec.result === 'string' && rec.result.length > resultText.length) {
-                    resultText = rec.result;
-                    setParseResult(resultText);
-                  }
-                  setParseThinking('');
-                  setParseResultState('done');
-                  pushParseLog(tr('parseLogDone'));
-                  closed = true;
-                  break;
-                } else if (ev.type === 'error') {
-                  const msgText = ev.message || 'unknown error';
-                  pushParseLog(msgText, 'error');
-                  setParseThinking('');
-                  setParseResultState('error');
-                  setParseMsg({ kind: 'error', text: failPrefix + '：' + msgText });
-                  if (resume) clearActiveParseKey();
-                  closed = true;
-                  break;
-                }
-              }
-              if (closed) break;
-            }
-            if (closed) break;
-          }
-          try { reader.cancel(); } catch { /* 流已结束 */ }
-          // 流自然结束但未收到 done/error 帧：按已完成处理
-          setParseResultState((s) => (s === 'streaming' ? 'done' : s));
-        } catch (e) {
-          if (e && e.name === 'AbortError') {
-            // 「停止」只中断前端接收；服务端继续解析完并入档记录（提示文案说明这一点）
-            setParseThinking('');
-            setParseResultState(resultText ? 'done' : 'idle');
-            pushParseLog(tr('parseStopHint'), 'warn');
-            setParseMsg({ kind: 'info', text: tr('parseStopHint') });
-          } else {
-            const msgText = String((e && e.message) || e);
-            pushParseLog(msgText, 'error');
-            setParseThinking('');
-            setParseResultState('error');
-            setParseMsg({ kind: 'error', text: failPrefix + (resume ? '：' : '') + msgText });
-            if (resume) clearActiveParseKey(); // 恢复场景下 SSE 失败：清除标记（下次挂载不再尝试）
-          }
-        } finally {
-          setParseBusy(false);
-          parseAbortRef.current = null;
-        }
+      const runParseStream = async (jobId,ctrl,resume) => {
+        try {return await readQueuedStream(jobId,ctrl,resume);}catch {}finally{if(!queueBusyRef.current){setParseBusy(false);parseAbortRef.current=null;}}
       };
       const stopParse = () => {
         try { if (parseAbortRef.current) parseAbortRef.current.abort(); } catch { /* 忽略 */ }
@@ -1938,6 +1980,8 @@ window.__ModuleLoader__.load({
         setRecLoading(true);
         try {
           const qs = [];
+          const view=override&&override.view?override.view:recView;
+          if(view==='completed')qs.push('status=done');else if(view==='archived')qs.push('archived=only');
           if (qv.trim()) qs.push('q=' + encodeURIComponent(qv.trim()));
           if (fv) qs.push('from=' + encodeURIComponent(fv));
           if (tv) qs.push('to=' + encodeURIComponent(tv));
@@ -1977,6 +2021,8 @@ window.__ModuleLoader__.load({
           try { data = await resp.json(); } catch { data = null; }
           if (resp.ok && data && data.ok === true) {
             setRecMsg({ kind: 'ok', text: tr('recDelOk') });
+            for(const [key,task] of Object.entries(tasksRef.current)){if(task.recordId===rec.id)updateFileTask(key,{status:'pending',record:null,recordId:null,jobId:null,result:''});}
+            if(parseRecord&&parseRecord.id===rec.id){setParseRecord(null);setParseResult('');setParseResultState('idle');}
             recordsStaleRef.current = true;
             // v1.3.2：删除的是进行中/恢复标记指向的记录时，同步清除跨页恢复标记
             try {
@@ -1997,6 +2043,7 @@ window.__ModuleLoader__.load({
       /* 两段式删除确认：点一次变「确认删除？」再点执行，3 秒未点自动恢复 */
       const requestDelete = (rec) => {
         if (!rec || !rec.id) return;
+        if(rec.status==='parsing'){setRecMsg({kind:'error',text:'任务仍在运行，不能将删除记录当作取消；请等待真实终态'});return;}
         if (delTimerRef.current) { try { clearTimeout(delTimerRef.current); } catch { /* 忽略 */ } delTimerRef.current = null; }
         if (pendingDeleteId === rec.id) {
           setPendingDeleteId(null);
@@ -2110,9 +2157,9 @@ window.__ModuleLoader__.load({
             // 同步查看抽屉（开着同一条记录时）与文件解析页的当前记录元数据
             if (saved) {
               setDrawerRecord((cur) => (cur && cur.id === rec.id ? Object.assign({}, cur, saved) : cur));
-              setParseRecord((cur) => (cur && cur.id === rec.id ? Object.assign({}, cur, {
-                title: saved.title, fileName: saved.fileName, remark: saved.remark,
-              }) : cur));
+              setParseRecord(cur=>(cur&&cur.id===rec.id?saved:cur));
+              if(parseRecord&&parseRecord.id===rec.id)setParseResult(saved.reportMarkdown||saved.result||'');
+              for(const [key,task] of Object.entries(tasksRef.current)){if(task.recordId===saved.id)updateFileTask(key,{record:saved,result:saved.reportMarkdown||saved.result||''});}
             }
           } else {
             const reason = data && data.message ? data.message : 'HTTP ' + resp.status;
@@ -2157,6 +2204,31 @@ window.__ModuleLoader__.load({
         return pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
       };
 
+      /* paQaTs-20261005：消息气泡时间戳（今日 HH:mm / 同年 MM-DD HH:mm / 跨年 YYYY-MM-DD HH:mm；无效值返回 '' 不渲染） */
+      const fmtQaMsgTime = (v, compact) => {
+        let d = null;
+        if (typeof v === 'number' && Number.isFinite(v)) d = new Date(v);
+        else if (typeof v === 'string' && v) { const n = new Date(v); if (!Number.isNaN(n.getTime())) d = n; }
+        if (!d) return '';
+        const now = new Date();
+        const hm = pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+        if (compact) return hm;
+        if (d.getFullYear() !== now.getFullYear()) return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + ' ' + hm;
+        if (d.getMonth() !== now.getMonth() || d.getDate() !== now.getDate()) return pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + ' ' + hm;
+        return hm;
+      };
+
+      /* paQaTsNarrow-20261005：时间戳双形态渲染——完整格式(.pa-msg-ts) 与窄屏紧凑格式(.pa-msg-tsn)，
+       * 由 PA_QATS_CSS 的媒体查询决定显示哪一个；两者 title 均为完整时间，窄屏不丢信息。 */
+      const qaTsNodes = (v, style) => {
+        const full = fmtQaMsgTime(v);
+        if (!full) return null;
+        const compact = fmtQaMsgTime(v, true);
+        const nodes = [h('span', { key: 'f', className: 'pa-msg-ts', title: full, style: style }, full)];
+        if (compact) nodes.push(h('span', { key: 'c', className: 'pa-msg-tsn', title: full, style: style }, compact));
+        return nodes;
+      };
+
       /* GET /api/policy-analysis/qa/sessions：会话列表（进入视图或 turn_end 后刷新） */
       const loadQaSessions = async () => {
         setQaSessionsLoading(true);
@@ -2183,8 +2255,10 @@ window.__ModuleLoader__.load({
           setQaMsg({ kind: 'info', text: tr('qaSessionSwitchBusy') });
           return;
         }
-        setQaActiveId(null);
+        stopQaRecoverPoll(); /* paBg-20261005：新建会话停掉上一回合的恢复轮询，避免旧结果回填 */
+        setQaActiveId(null);qaPendingRef.current=null;setQaBackgroundState('idle');try{sessionStorage.removeItem(QA_RECOVERY_KEY);}catch{}
         setQaMessages([]);
+        setQaInput('');setQaFiles([]);setPublicConfirmed(false);
         setQaThinking('');
         // v1.4.0：新会话回到系统默认模型
         setQaModel(qaModels.def || null);
@@ -2236,6 +2310,9 @@ window.__ModuleLoader__.load({
           setQaMsg({ kind: 'info', text: tr('qaSessionSwitchBusy') });
           return;
         }
+        /* paBg-20261005：切换会话即停掉上一回合的恢复轮询，避免旧结果覆盖当前会话 */
+        stopQaRecoverPoll();
+        setPublicConfirmed(false);setQaFiles([]);
         setQaActiveId(s.id);
         try {
           const resp = await fetch('/api/policy-analysis/qa/sessions/' + encodeURIComponent(s.id), { credentials: 'same-origin' });
@@ -2252,7 +2329,12 @@ window.__ModuleLoader__.load({
               files: Array.isArray(m.files) ? m.files : undefined,
               error: typeof m.error === 'string' ? m.error : undefined,
             })));
+            const task=data.session.task,pending=qaPendingRef.current;const match=pending&&pending.sessionId===s.id&&list.some(m=>m.role==='assistant'&&m.turnId===pending.turnId);
+            if(data.session.busy){qaPendingRef.current={sessionId:s.id,turnId:task&&task.id,aiId:'history-active',question:''};setQaBackgroundState('running');try{sessionStorage.setItem(QA_RECOVERY_KEY,JSON.stringify(qaPendingRef.current));}catch{}setQaMsg({kind:'info',text:'当前会话后台仍在运行，完成后自动显示结果（也可手动查询）'});startQaRecoverPoll();}
+            else if(pending&&pending.sessionId===s.id&&!match&&(!task||task.status!=='error')){setQaBackgroundState('unknown');}
+            else{qaPendingRef.current=null;setQaBackgroundState(task&&task.status==='error'?'error':'idle');try{sessionStorage.removeItem('pa-qa-recovery-v1');}catch{}}
             // v1.4.0：切回会话时同步其使用的模型（旧会话无记录 → 回系统默认）
+            setSource(data.session.source || FIXED_SOURCE);setRole(data.session.role || FIXED_ROLE);setMode(data.session.mode || FIXED_MODE);
             if (data.session.provider && data.session.model) {
               setQaModel({ provider: data.session.provider, model: data.session.model });
             } else {
@@ -2311,7 +2393,7 @@ window.__ModuleLoader__.load({
        * status 帧携带 sessionId/isNew —— 新会话由服务端创建并插入列表顶部选中；
        * turn_end 后刷新会话列表（首问会生成标题）；error 帧 HTTP 仍 200，气泡内标记失败） */
       const sendQa = async () => {
-        if (qaSendBusy) return;
+        if (qaSendBusy || uploadBusy || ['paused','unknown','running'].includes(qaBackgroundState)) return;
         const q = qaInput.trim();
         if (!q) return;
         if (!publicConfirmed) {
@@ -2322,7 +2404,7 @@ window.__ModuleLoader__.load({
         const aiId = 'qa' + qaIdRef.current;
         const attach = qaFiles.map((f) => ({ name: f.name, path: f.path }));
         setQaMessages((list) => list.concat([
-          { id: 'qu' + qaIdRef.current, role: 'user', text: q, ts: Date.now(), files: attach.length ? attach.map((f) => ({ name: f.name })) : undefined },
+          { id: 'qu' + qaIdRef.current, role: 'user', text: q, ts: Date.now(), files: attach.length ? attach.map((f) => ({ name: f.name, path:f.path })) : undefined },
           { id: aiId, role: 'assistant', text: '', ts: Date.now(), state: 'streaming', tools: [] },
         ]));
         setQaInput('');
@@ -2335,8 +2417,10 @@ window.__ModuleLoader__.load({
         let answer = '';
         let thinking = '';
         const tools = [];
-        let turnEnded = false;
+        let turnEnded = false;let serverError=false;
+        qaPendingRef.current={sessionId:qaActiveId,aiId,turnId:null,question:q,startedAt:Date.now()};setQaBackgroundState('running');
         const patchAi = (patch) => setQaMessages((list) => list.map((m) => (m.id === aiId ? Object.assign({}, m, patch) : m)));
+        try{sessionStorage.setItem('pa-qa-recovery-v1',JSON.stringify(qaPendingRef.current));}catch{qaPendingRef.current=null;setQaBackgroundState('error');setQaSendBusy(false);patchAi({state:'error',error:'本地回执存储不可用，未发送问题'});return;}
         try {
           const resp = await fetch('/api/policy-analysis/qa', {
             method: 'POST',
@@ -2346,7 +2430,7 @@ window.__ModuleLoader__.load({
             // 无附件为模型知识作答，检索仅知识库（严禁联网兜底）
             // v1.4.0：显式携带所选模型路由（未选/列表不可用时省略 → 服务端用系统默认）
             body: JSON.stringify(Object.assign(
-              { sessionId: qaActiveId, question: q, files: attach, source: FIXED_SOURCE, role: FIXED_ROLE, mode: FIXED_MODE, publicConfirmed: true },
+              { sessionId: qaActiveId, question: q, files: attach, source, role, mode, publicConfirmed: true },
               (qaModel && qaModel.provider && qaModel.model) ? { provider: qaModel.provider, model: qaModel.model } : {},
             )),
             signal: ctrl.signal,
@@ -2387,14 +2471,15 @@ window.__ModuleLoader__.load({
                       if (typeof ev.title === 'string' && ev.title) item.title = ev.title;
                       setQaSessions((list) => [item].concat(list));
                     }
-                    setQaActiveId(sid);
+                    setQaActiveId(sid);qaPendingRef.current.sessionId=sid;
                   }
+                  if(ev.turnId&&qaPendingRef.current){qaPendingRef.current.turnId=ev.turnId;try{sessionStorage.setItem('pa-qa-recovery-v1',JSON.stringify(qaPendingRef.current));}catch{}}
                   // v1.4.0：以服务端实际生效的模型路由为准（热切换后回填选择器）
                   if (ev.provider && ev.model) {
                     setQaModel({ provider: String(ev.provider), model: String(ev.model) });
                   }
                   if (typeof ev.text === 'string' && ev.text) {
-                    thinking += (thinking ? '\n' : '') + ev.text;
+                    thinking = ev.progressOnly ? ev.text : thinking + (thinking ? '\n' : '') + ev.text;
                     setQaThinking(thinking);
                   }
                 } else if (ev.type === 'thinking' && typeof ev.text === 'string') {
@@ -2412,11 +2497,12 @@ window.__ModuleLoader__.load({
                   }
                 } else if (ev.type === 'turn_end') {
                   if (ev.sessionId) setQaActiveId(ev.sessionId);
-                  turnEnded = true;
+                  turnEnded = true;setQaBackgroundState('done');if(typeof ev.text==='string'){answer=ev.text;patchAi({text:answer});}qaPendingRef.current=null;try{sessionStorage.removeItem('pa-qa-recovery-v1');}catch{}
                   closed = true;
                   break;
                 } else if (ev.type === 'error') {
-                  patchAi({ state: 'error', error: ev.message || 'unknown' });
+                  serverError=true;setQaBackgroundState(ev.code==='RECEIVE_TIMEOUT'?'unknown':'error');
+                  patchAi({ state: ev.code==='RECEIVE_TIMEOUT'?'unknown':'error', error: ev.message || 'unknown' });
                   closed = true;
                   break;
                 }
@@ -2426,16 +2512,15 @@ window.__ModuleLoader__.load({
             if (closed) break;
           }
           try { reader.cancel(); } catch { /* 流已结束 */ }
-          // 流自然结束但未收到 turn_end/error：把气泡定格为完成
-          setQaMessages((list) => list.map((m) => (m.id === aiId && m.state === 'streaming' ? Object.assign({}, m, { state: 'done' }) : m)));
+          setQaMessages(list=>list.map(m=>m.id===aiId&&m.state==='streaming'?{...m,state:turnEnded?'done':'paused',ts:turnEnded?Date.now():m.ts}:m)); /* paQaTs-20261005：完成时刻 */
+          if(!turnEnded&&!serverError){setQaBackgroundState('paused');setQaMsg({kind:'info',text:'接收已暂停，后台状态未确认；查询真实结果，不会重发问题'});}
           if (turnEnded) void loadQaSessions(); // turn_end 后刷新会话列表（首问生成标题）
         } catch (e) {
           if (e && e.name === 'AbortError') {
-            // 卸载/清理导致的中断：气泡定格，不标错误
-            setQaMessages((list) => list.map((m) => (m.id === aiId && m.state === 'streaming' ? Object.assign({}, m, { state: 'done' }) : m)));
+            patchAi({state:'paused'});setQaBackgroundState('paused');setQaMsg({kind:'info',text:'已停止接收，不代表后台完成或取消；请查询真实结果'});
           } else {
             const msgText = String((e && e.message) || e);
-            setQaMessages((list) => list.map((m) => (m.id === aiId && m.state === 'streaming' ? Object.assign({}, m, { state: 'error', error: msgText }) : m)));
+            patchAi({state:'unknown',error:msgText});setQaBackgroundState('unknown');
             setQaMsg({ kind: 'error', text: tr('qaSendFail') + msgText });
           }
         } finally {
@@ -2447,7 +2532,7 @@ window.__ModuleLoader__.load({
 
       /* 一键归档当前会话（不弹窗）：POST /qa/archive {sessionId} → {ok, record:{seq,...}} → toast */
       const archiveQaSession = async () => {
-        if (qaArchiving || qaSendBusy || !qaActiveId || !qaMessages.length) return;
+        if (qaArchiving || qaSendBusy || ['running','paused','unknown'].includes(qaBackgroundState) || !qaActiveId || !qaMessages.length) return;
         setQaArchiving(true);
         try {
           const resp = await fetch('/api/policy-analysis/qa/archive', {
@@ -2473,16 +2558,67 @@ window.__ModuleLoader__.load({
       };
 
       /* 复制回答 / 清空输入与附件 / 移除待附文件 */
+      /* paBg-20261005：恢复轮询控制器（函数声明，hoisted；面板卸载即停，回执保留待切回续跑） */
+      function stopQaRecoverPoll() {
+        if (qaRecoverTimerRef.current) {
+          try { clearInterval(qaRecoverTimerRef.current); } catch { /* 忽略 */ }
+          qaRecoverTimerRef.current = null;
+        }
+      }
+      /* paBg-20261005：回合仍在跑时自动轮询会话，完成即自动出现回答（无需手动刷新） */
+      function startQaRecoverPoll() {
+        stopQaRecoverPoll();
+        qaRecoverTicksRef.current = 0;
+        qaRecoverTimerRef.current = setInterval(() => {
+          qaRecoverTicksRef.current += 1;
+          if (qaRecoverTicksRef.current > QA_RECOVER_POLL_MAX) {
+            stopQaRecoverPoll();
+            setQaBackgroundState('unknown');
+            setQaMsg({ kind: 'info', text: '后台终态长时间未确认；请检查历史或刷新页面，不会自动重发问题' });
+            return;
+          }
+          void recoverQa({ silent: true }).then((st) => {
+            if (st === 'done' || st === 'error') {
+              stopQaRecoverPoll();
+              setQaMsg({ kind: st === 'done' ? 'ok' : 'error', text: st === 'done' ? '后台已完成，结果已自动显示' : '后台回合失败，请查看会话历史' });
+            }
+          });
+        }, QA_RECOVER_POLL_MS);
+      }
+      /* paBg-20261005：查询后台真实终态（跨页/刷新恢复与自动轮询共用）。
+       * 宿主在客户端断开后仍自主跑完并落库，故此处只需按会话 id 拉取：
+       *   已落库 assistant 消息存在且回合已终结 → 直接渲染完整回答（含引用/来源等既有字段）；
+       *   回合仍在跑 → 返回 'running'，由 startQaRecoverPoll 自动轮询至完成后显示。
+       * 返回 'done' | 'error' | 'running' | 'unknown'。 */
+      const recoverQa = async (opts) => {
+        const silent = !!(opts && opts.silent);
+        const pending=qaPendingRef.current;
+        if(!pending||!pending.sessionId){if(!silent)setQaMsg({kind:'error',text:'未获得会话回执，无法确认后台；请检查历史，不自动重发'});return 'unknown';}
+        try{const response=await fetch('/api/policy-analysis/qa/sessions/'+encodeURIComponent(pending.sessionId),{credentials:'same-origin'});const data=await response.json();if(!response.ok||!data.ok)throw Error(data.message||'状态查询失败');
+          const sess=data.session,task=sess.task,list=Array.isArray(sess.messages)?sess.messages:[];
+          /* 终态判定：turnId 精确匹配优先；旧回执缺 turnId 时按「问题原文 → 其后首条 assistant」兜底 */
+          let answer=list.find(m=>m.role==='assistant'&&pending.turnId&&m.turnId===pending.turnId)||null;
+          if(!answer&&!pending.turnId&&pending.question){let ui=-1;for(let i=0;i<list.length;i++){if(list[i].role==='user'&&list[i].text===pending.question)ui=i;}if(ui>=0){for(let i=ui+1;i<list.length;i++){if(list[i].role==='assistant'){answer=list[i];break;}}}}
+          if(answer&&(!task||task.id!==pending.turnId||task.status==='done')){setQaMessages(list.map((m,i)=>({...m,id:'restored-'+i,state:m.role==='assistant'?'done':undefined})));setQaBackgroundState('done');qaPendingRef.current=null;try{sessionStorage.removeItem(QA_RECOVERY_KEY);}catch{ /* 忽略 */ }stopQaRecoverPoll();if(!silent)setQaMsg({kind:'ok',text:'已恢复真实完成结果，未重发问题'});return 'done';}
+          if(task&&task.id===pending.turnId&&task.status==='error'){setQaBackgroundState('error');stopQaRecoverPoll();if(!silent)setQaMsg({kind:'error',text:task.error||'后台失败'});return 'error';}
+          setQaBackgroundState(sess.busy?'running':'unknown');if(!silent)setQaMsg({kind:'info',text:sess.busy?'后台仍运行，结果完成后自动显示':'未发现本任务真实终态，请检查历史或新建会话'});return sess.busy?'running':'unknown';
+        }catch(error){setQaBackgroundState('unknown');if(!silent)setQaMsg({kind:'error',text:error.message});return 'unknown';}
+      };
+      /* paBg-20261005：面板（重新）挂载时恢复进行中的问答回合 —— 宿主在本面板断开后仍自主
+       * 跑完并落库，故切回政策解读页面时：已完成 → 直接看到完整回答；仍在生成 → 先本地回显
+       * 「问题 + 生成中」，再自动轮询到完成后出现结果（不必手动刷新）。无回执时按既有口径
+       * 提示「后台状态未知」，绝不自动重发问题。 */
+      React.useEffect(()=>{try{const saved=JSON.parse(sessionStorage.getItem(QA_RECOVERY_KEY)||'null');if(!saved||!saved.aiId)return;qaPendingRef.current=saved;if(!saved.sessionId){setQaBackgroundState('unknown');setQaMsg({kind:'info',text:'刷新前未获得问答回执，后台状态未知；请检查历史，禁止自动重发'});return;}setQaActiveId(saved.sessionId);setTab('qa');/* 切回面板定位到智能问答视图，否则恢复出来的回答不可见 */setQaBackgroundState('running');qaIdRef.current+=1;const ph=[];if(saved.question)ph.push({id:'rq'+qaIdRef.current,role:'user',text:saved.question,ts:saved.startedAt||Date.now()});ph.push({id:'ra'+qaIdRef.current,role:'assistant',text:'',ts:Date.now(),state:'streaming',tools:[]});setQaMessages(ph);startQaRecoverPoll();void recoverQa({silent:false}).then((st)=>{if(st!=='done'&&st!=='running')setQaMessages((list)=>list.map((m)=>(m.state==='streaming'?{...m,state:'unknown'}:m)));});}catch{ /* 忽略：恢复失败不影响新会话 */ }},[]);
       const copyQaAnswer = (m) => {
         if (!m || !m.text) return;
         copyTextTo(m.text, (ok) => setQaMsg({ kind: ok ? 'ok' : 'error', text: tr(ok ? 'copyOk' : 'copyFail') }));
       };
       const clearQaInput = () => {
-        if (qaSendBusy) return;
-        setQaInput('');
-        setQaFiles([]);
+        if(qaSendBusy)return;
+        newQaSession();setQaMsg({kind:'info',text:'已开始新会话，原记录保留'});
       };
       const removeQaFile = (key) => {
+        if(qaSendBusy)return;
         setQaFiles((list) => list.filter((f) => f.key !== key));
       };
       /* 消息列表滚动：记录用户是否上滚（未上滚才自动滚底） */
@@ -2525,6 +2661,8 @@ window.__ModuleLoader__.load({
         try { saved = JSON.parse(raw); } catch { saved = null; }
         if (!saved || !saved.jobId) return;
         setTab('parse');
+        currentQueueFileRef.current=saved.fileKey || null;
+        if(saved.fileKey)setActiveFileKey(saved.fileKey);
         setParseJobId(saved.jobId);
         if (saved.fileName) pushParseLog(tr('parseResumeFile') + saved.fileName);
         const resumeId = saved.recordId || null;
@@ -2611,6 +2749,8 @@ window.__ModuleLoader__.load({
         try { if (parseAbortRef.current) parseAbortRef.current.abort(); } catch { /* 忽略 */ }
         try { if (qaAbortRef.current) qaAbortRef.current.abort(); } catch { /* 忽略 */ }
         try { if (qaSendAbortRef.current) qaSendAbortRef.current.abort(); } catch { /* 忽略 */ }
+        /* paBg-20261005：卸载/切页停掉恢复轮询（回执保留在 sessionStorage，切回自动续跑；宿主不受影响） */
+        try { stopQaRecoverPoll(); } catch { /* 忽略 */ }
         try { if (sendPollRef.current) clearInterval(sendPollRef.current); } catch { /* 忽略 */ }
         try { if (delTimerRef.current) clearTimeout(delTimerRef.current); } catch { /* 忽略 */ }
         try { if (qaDelTimerRef.current) clearTimeout(qaDelTimerRef.current); } catch { /* 忽略 */ }
@@ -3394,63 +3534,38 @@ window.__ModuleLoader__.load({
         ),
       );
 
-      /* ════════ 左侧导航（品牌块 + 三导航项 + 智能问答二级目录 + 公开性状态 chip，宽 200px） ════════ */
+      /* ════════ 左侧导航：与会议助手使用相同的 rail 宽度、品牌块、间距及选中态 ════════ */
       const NAV_DEFS = [
         { key: 'parse', labelKey: 'tabParse', icon: ICONS.doc },
         { key: 'records', labelKey: 'tabRecords', icon: ICONS.archive },
         { key: 'qa', labelKey: 'tabQa', icon: ICONS.chat },
       ];
       const renderSideNav = () => h('nav', {
-        style: {
-          width: 200, flexShrink: 0, background: T.surface, borderRight: '1px solid ' + T.border,
-          display: 'flex', flexDirection: 'column', padding: 12, overflow: 'hidden', userSelect: 'none',
-        },
+        className: 'pa-module-nav' + (moduleNavOpen ? ' is-open' : ''), 'aria-label': '政策模块左侧栏',
+        onKeyDown: (e) => { if (e.key === 'Escape') setModuleNavOpen(false); },
       },
-        // 品牌块：政策解读 + 版本徽标
-        h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, padding: '2px 2px 12px', borderBottom: '1px solid ' + T.borderSub, flexShrink: 0 } },
-          h('div', {
-            style: {
-              width: 30, height: 30, borderRadius: 6, background: T.accent, color: T.accentInk, flexShrink: 0,
-              display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 15,
-            },
-          }, tr('brandMark')),
-          h('div', { style: { minWidth: 0 } },
-            h('div', { style: { fontSize: 13, fontWeight: 700, color: T.text1, lineHeight: 1.3 } }, tr('appTitle')),
-            h('span', {
-              style: {
-                display: 'inline-block', marginTop: 2, fontSize: 9, fontWeight: 700, letterSpacing: 0.5,
-                padding: '1px 6px', borderRadius: 4, background: T.accentSoft,
-                border: '1px solid ' + T.accentSoftBorder, color: T.accent,
-              },
-            }, VERSION),
-          ),
+        h('div', { className: 'pa-railbrand' },
+          h('span', { className: 'pa-railicon', 'aria-hidden': true }, tr('brandMark')),
+          h('span', { className: 'pa-railname' }, tr('appTitle')),
         ),
-        // 导航项（图标 + 文字，选中态高亮）；智能问答项下挂二级目录（qa 激活时展开）
-        h('div', { style: { display: 'flex', flexDirection: 'column', gap: 4, paddingTop: 12 } },
+        h('button', { type: 'button', className: 'pa-module-close', 'aria-label': '收起政策模块导航', onClick: () => setModuleNavOpen(false) }, '×'),
+        h('div', { className: 'pa-railnav' },
+          h('div', { className: 'pa-railsection' }, tr('navWorkspace')),
           NAV_DEFS.map((nd) => h('button', {
-            key: nd.key, type: 'button',
+            key: nd.key, type: 'button', title: tr(nd.labelKey), 'aria-label': tr(nd.labelKey),
+            'aria-current': tab === nd.key ? 'page' : undefined,
             className: 'pa-navitem' + (tab === nd.key ? ' pa-navitem-on' : ''),
-            onClick: () => setTab(nd.key),
+            onClick: () => { setTab(nd.key); setModuleNavOpen(false); },
           },
-            Icon({ d: nd.icon, size: 15 }),
-            h('span', null, tr(nd.labelKey)),
+            h('span', { className: 'pa-navicon', 'aria-hidden': true }, Icon({ d: nd.icon, size: 16 })),
+            h('span', { className: 'pa-navtxt' }, tr(nd.labelKey)),
           )),
-          // v1.3.1：智能问答二级目录（新建会话 + 历史会话列表；常挂载 display 切换，qa 激活时展开）
+          // 新建会话与历史目录继续留在智能问答项下，保留任务状态。
           renderQaSubnav(),
         ),
-        h('div', { style: { flex: 1 } }),
-        // 底部公开性状态小提示 chip（非交互，跟随共享 publicConfirmed 状态）
-        h('div', {
-          style: {
-            flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px', borderRadius: 8,
-            fontSize: 10.5, fontWeight: 500, lineHeight: 1.4,
-            background: publicConfirmed ? T.successSoft : T.warnBg,
-            border: '1px solid ' + (publicConfirmed ? T.successBorder : T.warnBorder),
-            color: publicConfirmed ? T.successText : T.warnText,
-          },
-        },
-          h('span', { style: { width: 6, height: 6, borderRadius: '50%', background: publicConfirmed ? T.success : T.warnIcon, flexShrink: 0 } }),
-          h('span', null, tr(publicConfirmed ? 'navPublicOk' : 'navPublicPending')),
+        h('div', { className: 'pa-railstatus' },
+          h('span', { className: 'pa-statusdot', style: { background: publicConfirmed ? T.success : T.warnIcon } }),
+          h('span', { style: { color: publicConfirmed ? T.successText : T.warnText } }, tr(publicConfirmed ? 'navPublicOk' : 'navPublicPending')),
         ),
       );
 
@@ -3699,28 +3814,30 @@ window.__ModuleLoader__.load({
         ),
       );
 
-      /* 解析过程窗口：深色终端风（等宽 / [HH:MM:SS] 逐条 / 自动滚底 / 结束后保留日志） */
+      /* 解析过程窗口：与解析结果面板统一浅色背景、边框、标题及正文样式 */
       const renderParseTerm = () => h('div', {
-        className: 'pa-term',
-        style: { borderRadius: 12, overflow: 'hidden', display: 'flex', flexDirection: 'column', flexShrink: 0, border: '1px solid ' + T.border },
+        style: {
+          borderRadius: 12, overflow: 'hidden', display: 'flex', flexDirection: 'column', flexShrink: 0,
+          background: T.surface, color: T.text1, border: '1px solid ' + T.border,
+        },
       },
-        h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '7px 12px', borderBottom: '1px solid rgba(148,163,184,.25)', flexShrink: 0 } },
-          h('span', { style: { fontSize: 11, fontWeight: 700, letterSpacing: 1, opacity: 0.85 } }, tr('parseLogTitle')),
+        h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '9px 14px', borderBottom: '1px solid ' + T.border, flexShrink: 0 } },
+          h('span', { style: { fontWeight: 700, fontSize: 12.5, color: T.text1 } }, tr('parseLogTitle')),
           parseJobId
-            ? h('span', { style: { fontSize: 10, opacity: 0.55, wordBreak: 'break-all' } }, 'jobId: ' + parseJobId)
+            ? h('span', { style: { fontSize: 10, color: T.text3, wordBreak: 'break-all' } }, 'jobId: ' + parseJobId)
             : null,
         ),
         h('div', {
           ref: termRef, className: 'pa-scroll',
-          style: { height: 176, maxHeight: 260, overflowY: 'auto', padding: '8px 12px', fontSize: 11.5, lineHeight: 1.7 },
+          style: { height: 176, maxHeight: 260, overflowY: 'auto', padding: 14, fontSize: 12.5, lineHeight: 1.6 },
         },
           parseLog.length === 0 && !parseThinking
-            ? h('div', { style: { opacity: 0.45 } }, tr('parseLogEmpty'))
+            ? h('div', { style: { color: T.text3 } }, tr('parseLogEmpty'))
             : parseLog.map((l, i) => h('div', {
                 key: i,
                 style: {
                   whiteSpace: 'pre-wrap', wordBreak: 'break-all',
-                  color: l.kind === 'error' ? '#fca5a5' : l.kind === 'tool' ? '#93c5fd' : l.kind === 'warn' ? '#fcd34d' : 'inherit',
+                  color: l.kind === 'error' || l.kind === 'warn' ? T.warnText : l.kind === 'tool' ? T.infoInk : T.text1,
                 },
               }, '[' + l.ts + '] ' + l.text)),
         ),
@@ -3729,8 +3846,8 @@ window.__ModuleLoader__.load({
           ? h('div', {
               className: 'pa-scroll',
               style: {
-                flexShrink: 0, borderTop: '1px solid rgba(148,163,184,.25)', padding: '6px 12px',
-                fontSize: 11, lineHeight: 1.6, color: '#7dd3fc', maxHeight: 84, overflowY: 'auto',
+                flexShrink: 0, borderTop: '1px solid ' + T.border, padding: '8px 14px',
+                fontSize: 12.5, lineHeight: 1.6, color: T.text2, maxHeight: 84, overflowY: 'auto',
                 whiteSpace: 'pre-wrap', wordBreak: 'break-word',
               },
             },
@@ -4108,7 +4225,7 @@ window.__ModuleLoader__.load({
                   ? h('button', {
                       type: 'button',
                       className: 'pa-ghostbtn',
-                      onClick: () => setDrawerTab('source'),
+                      onClick: () => {setPreviewConfirmed(false);setPendingPreview({name:rec.fileName,path:rec.filePath});},
                       title: rec.filePath,
                       style: {
                         fontSize: 11.5, padding: '6px 12px', fontWeight: drawerTab === 'source' ? 700 : 400,
@@ -4539,7 +4656,8 @@ window.__ModuleLoader__.load({
       /* ════════ 视图3「智能问答」（v1.3.1） ════════ */
       const activeQaSession = qaSessions.find((s) => s.id === qaActiveId) || null;
       const qaHeaderTitle = activeQaSession && activeQaSession.title ? activeQaSession.title : tr('qaNewSession');
-      const qaArchiveDisabled = !qaActiveId || qaMessages.length === 0 || qaSendBusy || qaArchiving;
+      const qaBackendUnknown=['running','paused','unknown'].includes(qaBackgroundState);
+      const qaArchiveDisabled = qaBackendUnknown || !qaActiveId || qaMessages.length === 0 || qaSendBusy || qaArchiving;
 
       /* 二级目录会话项（v1.3.1）：缩进小号（标题+时间），悬停两段式删除，当前会话高亮；
        * 点击 = 切到智能问答并激活该会话（GET /qa/sessions/:id 载入历史） */
@@ -4583,6 +4701,7 @@ window.__ModuleLoader__.load({
        * 常挂载不卸载）；＋新建会话（缩进小号）+ 历史会话列表（超高分区内滚，max-height 约 40vh）。
        * 列表数据来自 qaSessions（qa 激活时或 turn_end 后拉取）。 */
       const renderQaSubnav = () => h('div', {
+        className: 'pa-qa-subnav',
         style: {
           display: tab === 'qa' ? 'flex' : 'none',
           flexDirection: 'column', gap: 4, marginTop: 2, marginLeft: 12,
@@ -4618,38 +4737,50 @@ window.__ModuleLoader__.load({
         ),
       );
 
-      /* 消息气泡：用户右（附件 chip 展示名称）/ 助手左（pre-wrap；流式无增量时「思考中…」闪烁占位） */
+      /* 消息气泡：用户右（附件 chip 展示名称）/ 助手左（pre-wrap；流式无增量时「思考中…」闪烁占位）
+       * paQaTs-20261005：每条消息带时间戳——用户气泡下右对齐；助手气泡底部信息行（已完成时时间在左、
+       * 「复制回答 / 待人工复核」在右，流式中与失败时仅右对齐显示时间）。 */
       const renderQaMsgItem = (m) => {
+        const stamp = fmtQaMsgTime(m.ts);
         if (m.role === 'user') {
           return h('div', { key: m.id, style: { display: 'flex', gap: 10, justifyContent: 'flex-end' } },
             h('div', {
-              style: {
-                maxWidth: '80%', background: T.userBubble, color: '#ffffff',
-                borderRadius: '14px 14px 4px 14px', padding: '10px 14px',
-                fontSize: T.contentFont, lineHeight: 1.7, wordBreak: 'break-word',
-                display: 'flex', flexDirection: 'column', gap: 6,
-              },
+              style: { minWidth: 0, maxWidth: '82%', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 },
             },
-              m.files && m.files.length
-                ? h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 4 } },
-                    m.files.map((f, i) => h('span', {
-                      key: i,
-                      style: {
-                        display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5,
-                        background: 'rgba(255,255,255,.16)', border: '1px solid rgba(255,255,255,.28)',
-                        borderRadius: 6, padding: '2px 6px',
+              h('div', {
+                style: {
+                  maxWidth: '100%', background: T.userBubble, color: T.text1,
+                  borderRadius: '14px 14px 4px 14px', padding: '10px 14px',
+                  fontSize: T.contentFont, lineHeight: 1.7, wordBreak: 'break-word',
+                  display: 'flex', flexDirection: 'column', gap: 6,
+                },
+              },
+                m.files && m.files.length
+                  ? h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 4 } },
+                      m.files.map((f, i) => h('span', {
+                        key: i,
+                        style: {
+                          display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5,
+                          background: 'rgba(255,255,255,.16)', border: '1px solid rgba(255,255,255,.28)',
+                          borderRadius: 6, padding: '2px 6px',
+                        },
                       },
-                    },
-                      Icon({ d: ICONS.doc, size: 11 }),
-                      h('span', null, f.name || f.path || '—'),
-                    )),
-                  )
+                        Icon({ d: ICONS.doc, size: 11 }),
+                        h('span', null, f.name || f.path || '—'),
+                      )),
+                    )
+                  : null,
+                h('div', { style: { whiteSpace: 'pre-wrap' } }, m.text),
+              ),
+              stamp
+                ? h('div', { style: { display: 'flex', alignItems: 'baseline' } },
+                    qaTsNodes(m.ts, { fontSize: 10, lineHeight: 1.4, color: T.text3, paddingRight: 4 }))
                 : null,
-              h('div', { style: { whiteSpace: 'pre-wrap' } }, m.text),
             ),
             h(Avatar, { bg: T.avatarMe, color: T.avatarMeText, text: tr('avatarMe') }),
           );
         }
+        const settled = m.state === 'done' && !!m.text;
         return h('div', { key: m.id, style: { display: 'flex', gap: 10, justifyContent: 'flex-start' } },
           h(Avatar, { bg: T.accentStrong, color: T.accentInk, text: tr('avatarAgent') }),
           h('div', {
@@ -4681,18 +4812,32 @@ window.__ModuleLoader__.load({
             m.error
               ? h('div', { style: { fontSize: 11, color: T.warnText, wordBreak: 'break-all' } }, tr('qaStreamError') + m.error)
               : null,
-            m.state === 'done' && m.text
-              ? h('div', { style: { display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, borderTop: '1px dashed ' + T.border, paddingTop: 6 } },
-                  h('button', {
-                    type: 'button', className: 'pa-ghostbtn', onClick: () => copyQaAnswer(m),
-                    style: { fontSize: 10.5, padding: '2px 6px' },
-                  }, tr('qaCopyAnswer')),
-                  h('span', { style: { fontSize: 10, color: T.text3 } }, tr('askPendingReview')),
+            (stamp || settled)
+              ? h('div', {
+                  className: 'pa-msg-meta',
+                  style: Object.assign({
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    justifyContent: (settled && stamp) ? 'space-between' : 'flex-end',
+                  }, settled ? { borderTop: '1px dashed ' + T.border, paddingTop: 6 } : null),
+                },
+                  (settled && stamp)
+                    ? qaTsNodes(m.ts, { fontSize: 10, color: T.text3 })
+                    : null,
+                  settled
+                    ? h('div', { style: { display: 'flex', alignItems: 'center', gap: 8 } },
+                        h('button', {
+                          type: 'button', className: 'pa-ghostbtn', onClick: () => copyQaAnswer(m),
+                          style: { fontSize: 10.5, padding: '2px 6px' },
+                        }, tr('qaCopyAnswer')),
+                        h('span', { style: { fontSize: 10, color: T.text3 } }, tr('askPendingReview')),
+                      )
+                    : qaTsNodes(m.ts, { fontSize: 10, color: T.text3 }),
                 )
               : null,
           ),
         );
       };
+
 
       /* 视图布局（v1.3.1）：纯会话框——会话管理已上收至左侧导航二级目录，此处仅全宽聊天列 */
       const renderQaTab = () => h('div', {
@@ -4857,7 +5002,7 @@ window.__ModuleLoader__.load({
                 style: { flex: 1, minWidth: 0, borderRadius: 12, padding: '9px 14px', fontSize: 12.5, color: T.text1, resize: 'none', lineHeight: 1.6 },
               }),
               h('button', {
-                type: 'button', className: 'pa-btn', onClick: sendQa, disabled: qaSendBusy,
+                type: 'button', className: 'pa-btn', onClick: sendQa, disabled: qaSendBusy || !publicConfirmed || uploadBusy,
                 style: {
                   display: 'flex', alignItems: 'center', gap: 6, padding: '9px 18px',
                   borderRadius: 12, fontSize: 12, fontWeight: 600, flexShrink: 0,
@@ -4879,9 +5024,89 @@ window.__ModuleLoader__.load({
         ),
       );
 
+
+      /* paQaTsNarrow-20261005：窄屏时间戳紧凑形态（≤860px 只显示 HH:mm，与输入区布局同一断点） */
+      const PA_QATS_CSS='.pa-root .pa-msg-tsn{display:none}@media(max-width:860px){.pa-root .pa-msg-ts{display:none}.pa-root .pa-msg-tsn{display:inline}}';
+      const PA_QALAYOUT_CSS='/* ===== 智能问答输入区布局（PA-QALAYOUT-20261005）：底边贴底 + 上边可拖拽拉高 + 模型选择贴发送按钮左侧 ===== */.pa-root .pa-qa-page{display:flex;flex-direction:column;overflow:hidden;padding:22px 30px 18px}.pa-root .pa-qa-page .pa-qa-grid{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:0}.pa-root .pa-qa-page .pa-chat-card{flex:1 1 auto;min-height:0}.pa-root .pa-qa-page .pa-chat-card>div:last-child{min-height:0}.pa-root .pa-qa-page .pa-chat-scroll{flex:1 1 auto;min-height:110px;max-height:none;overflow-y:auto}.pa-root .pa-qa-page .pa-chat-input{flex:0 0 auto;margin-top:auto;position:relative;padding:0 14px 10px}.pa-root .pa-qa-page .pa-chat-input .pa-qa-tools{padding:9px 0}.pa-root .pa-qa-page .pa-resize-grip{position:relative;height:14px;margin:2px 0 -2px;display:flex;align-items:center;justify-content:center;cursor:row-resize;touch-action:none;user-select:none;border-radius:8px}.pa-root .pa-qa-page .pa-resize-grip>span{display:block;width:46px;height:4px;border-radius:999px;background:#dbe2ec;transition:background .15s ease,width .15s ease}.pa-root .pa-qa-page .pa-resize-grip:hover>span,.pa-root .pa-qa-page .pa-resize-grip.pa-active>span{background:var(--pa-accent,#2563eb);width:64px}.pa-root .pa-qa-page .pa-resize-grip:focus-visible{outline:2px solid var(--pa-accent,#2563eb);outline-offset:2px}.pa-root .pa-qa-page .pa-chat-compose{height:var(--pa-compose-h,104px);min-height:96px;display:flex;flex-direction:column;align-items:stretch;overflow:hidden}.pa-root .pa-qa-page .pa-chat-compose textarea.pa-input{flex:1 1 auto;min-height:0;overflow-y:auto;resize:none}.pa-root .pa-qa-page .pa-chat-compose .pa-compose-bar{flex:0 0 auto}.pa-root .pa-qa-page .pa-chat-compose.pa-resizing{box-shadow:0 0 0 1px var(--pa-accent,#2563eb),0 8px 22px rgba(21,42,76,.10)}.pa-root .pa-qa-page .pa-compose-bar .pa-bar-gap{flex:1 1 auto;min-width:8px}.pa-root .pa-qa-page .pa-compose-bar .pa-model{margin-left:0}.pa-root .pa-qa-page .pa-compose-bar .pa-model>summary{max-width:200px}.pa-root .pa-qa-page .pa-chat-input>.pa-muted{margin:6px 0 0;font-size:10px;line-height:1.55}@media(max-width:860px){.pa-root .pa-qa-page{padding:16px 16px 12px}.pa-root .pa-qa-page .pa-compose-bar .pa-model>summary{max-width:120px}}@media(max-height:620px){.pa-root .pa-qa-page .pa-chat-scroll{min-height:80px}}'; /* PA-QALAYOUT-20261005 */
+      const PA_COMPOSER_CSS='/* ===== 知识库同款输入区（PA-COMPOSER-20261005）：圆角卡片 + 无边框输入区 + 工具条圆钮 + 圆形发送 ===== */.pa-root .pa-chat-compose{display:block;position:relative;background:#fff;border-radius:22px;box-shadow:0 0 0 .5px #e6eaf1,0 6px 18px rgba(21,42,76,.05);padding:2px 0 0;margin-top:2px;transition:box-shadow .15s ease}.pa-root .pa-chat-compose:hover{box-shadow:0 0 0 .5px #dfe5ee,0 8px 22px rgba(21,42,76,.07)}.pa-root .pa-chat-compose textarea.pa-input{display:block;width:100%;border:0;background:transparent;border-radius:0;font-size:14px;line-height:24px;padding:6px 14px 0 14px;min-height:54px;resize:none;box-shadow:none!important}.pa-root .pa-chat-compose textarea.pa-input:focus,.pa-root .pa-chat-compose textarea.pa-input:focus-visible{outline:none!important;box-shadow:none!important;border:0}.pa-root .pa-compose-bar{display:flex;align-items:center;gap:8px;padding:2px 10px 8px 12px}.pa-root .pa-compose-bar .pa-bar-gap{flex:1}.pa-root .pa-chat-compose .pa-compose-btn{width:28px;height:28px;min-width:28px;padding:0;border:0;border-radius:999px;background:transparent;color:#5f6b7e;font-size:15px;line-height:1;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}.pa-root .pa-chat-compose .pa-compose-btn:hover:not(:disabled){background:#eef2f8;color:#2a3342}.pa-root .pa-compose-bar .pa-model{flex:0 1 auto;min-width:0}.pa-root .pa-compose-bar .pa-model>summary{height:28px;display:inline-flex;align-items:center;gap:4px;padding:0 8px;border:0;border-radius:8px;background:transparent;color:#5f6b7e;font-size:12px;cursor:pointer;list-style:none;max-width:240px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.pa-root .pa-compose-bar .pa-model>summary:hover{background:#eef2f8;color:#2a3342}.pa-root .pa-compose-bar .pa-model>summary::-webkit-details-marker{display:none}.pa-root .pa-chat-compose .pa-compose-send{width:34px;height:34px;min-width:34px;padding:0;border:0;border-radius:999px;background:linear-gradient(135deg,var(--pa-accent,#2563eb),var(--pa-accent-strong,#1d4ed8));color:#fff;font-size:15px;line-height:1;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}.pa-root .pa-chat-compose .pa-compose-send:disabled{opacity:.45;cursor:not-allowed}/* 拖拽落点：本插件自己的强调色虚线 + 胶囊提示（形状与知识库一致，配色不抄知识库） */.pa-root .pa-chat-compose.pa-drop{outline:2px dashed var(--pa-accent,#2563eb);outline-offset:2px;background:#f7faff}.pa-root .pa-compose-pill{display:inline-flex;align-items:center;gap:6px;margin:10px 0 0 14px;padding:3px 10px;border-radius:999px;background:var(--pa-accent-soft,#eaf1ff);color:var(--pa-accent-strong,#1d4ed8);font-size:12px;border:1px solid var(--pa-accent-soft-border,#d9e5ff)}'; /* PA-COMPOSER-20261005 */
+      const smallButton=(label,onClick,disabled=false)=>h('button',{type:'button',className:'pa-ghostbtn',onClick,disabled},label);
+      const moreMenu=(items)=>h('details',{className:'pa-more'},h('summary',{'aria-label':'更多操作'},'⋯'),h('div',{className:'pa-more-menu'},items));
+      const taskStateNames={running:'运行中',submitting:'提交中',uncertain:'回执待核实',paused:'接收已暂停',done:'已完成',failed:'失败'};
+      const renderModelPicker=(kind)=>{
+        const selected=kind==='parse'?parseModel:qaModel;
+        const setSelected=kind==='parse'?setParseModel:setQaModel;
+        const busy=parseBusy||qaSendBusy;
+        return h('details',{className:'pa-model'},h('summary',null,selected?selected.model:'跟随系统默认',' ▴'),h('div',{className:'pa-model-menu'},
+          h('div',{className:'pa-menu-title'},'选择模型 · 仅本任务'),
+          smallButton('跟随系统默认',()=>setSelected(null),busy),
+          qaModels.state==='ready'?qaModels.groups.map(g=>h('section',{key:g.id},h('div',{className:'pa-menu-title'},g.name),g.models.map(m=>h('button',{key:g.id+'/'+m.id,type:'button',disabled:busy,onClick:e=>{setSelected({provider:g.id,model:m.id});const d=e.currentTarget.closest('details');if(d)d.open=false;}},m.name)))):h('p',null,qaModels.state==='loading'?'模型加载中':'模型目录不可用，不展示虚假列表'),
+          smallButton('刷新目录',()=>void loadQaModels(),busy)));
+      };
+      const renderPrototypeHeader=()=>
+        h('header',{className:'pa-proto-top'},h('button',{className:'pa-module-menu',type:'button','aria-label':'打开政策模块导航',onClick:()=>setModuleNavOpen(v=>!v)},'☰'),h('div',null,h('div',{className:'pa-kicker'},'Policy Interpreter'),h('h1',null,'政策解读'),h('p',null,'上传公开政策文件，获取结构化解读与可追溯引用。')),
+          h('div',{className:'pa-top-pills'},h('span',null,packHealth===null?'运行环境 · 未检测':packHealth.ok?'本机环境 · 已连接':'运行环境 · 不可用'),h('span',{className:'pa-warn-pill'},'公开材料门禁前置')));
+      const renderPrototypeParse=()=>h('section',{className:'pa-proto-page',onDragEnter,onDragOver,onDragLeave,onDrop},
+        renderDropOverlay(),h('div',{className:'pa-parse-grid'},
+          h('div',{className:'pa-parse-left'},
+            h('article',{className:'pa-step'},h('h3',null,h('b',null,'1'),'公开性确认'),h('p',null,'本系统仅处理已完全公开的政策材料。'),renderParseGateBar(),h('p',{className:'pa-muted'},'不得上传内部、涉密或尚未公开信息；上传不等于授权。')),
+            h('article',{className:'pa-step'},h('h3',null,h('b',null,'2'),'上传政策文件'),h('button',{type:'button',className:'pa-dropbox',disabled:uploadBusy||parseBusy,onClick:()=>pickFiles()},h('strong',null,uploadBusy?'上传中…':'点击选择或拖拽文件到这里'),h('span',null,'支持 PDF / DOCX / XLSX，单文件不超过 30MB')),
+              h('div',{className:'pa-file-chips'},files.map(f=>{
+                const t=fileTasks[f.key]||{};
+                return h('div',{key:f.key,className:'pa-file-chip'+(f.key===activeFileKey?' active':'' )},h('button',{type:'button',disabled:parseBusy,onClick:()=>selectParseFile(f)},f.name,' · ',taskStateNames[t.status]||'待解析'),
+                  smallButton('×',()=>removeFile(f.key),parseBusy||!!(t.jobId&&!['done','failed'].includes(t.status))),
+                  moreMenu([smallButton('源文件预览',()=>setPreviewFile({name:f.name,path:f.path}),!publicConfirmed),smallButton('复制真实路径',()=>copyFilePath(f))]));
+              })),uploadMsg?h('p',{role:'status',className:'pa-error'},uploadMsg.text):null),
+            h('article',{className:'pa-step'},h('h3',null,h('b',null,'3'),'解析配置'),h('div',{className:'pa-config-grid'},h('label',null,'解读模型',renderModelPicker('parse')),h('label',null,'解读深度',h('select',{className:'pa-input',value:parseDepth,disabled:parseBusy,onChange:e=>setParseDepth(e.target.value)},h('option',{value:'standard'},'标准解读'),h('option',{value:'quick'},'快速摘要'),h('option',{value:'deep'},'深度研读')))),
+              h('button',{type:'button',className:'pa-btn pa-start',disabled:parseBusy||uploadBusy||!files.length||!publicConfirmed,onClick:()=>void startParse()},parseBusy?'解析中…':'开始解析'),parseBusy?smallButton('停止接收（后台继续）',stopParse):null,
+              files.some(f=>fileTasks[f.key]&&fileTasks[f.key].status==='paused')?h('p',null,'点击开始恢复原任务，不重复提交'):null,renderParseMsg(),smallButton('来源 / 角色 / 模式配置',()=>setConfigOpen(true),parseBusy||qaSendBusy))),
+          h('div',{className:'pa-parse-right'},
+            h('article',{className:'pa-result-card'},h('div',{className:'pa-card-head'},h('h3',null,'解析结果'),h('span',{className:'pa-status'},parseResultState==='streaming'?'RUNNING':parseResultState==='done'?'DONE':parseResultState==='error'?'FAILED':parseResultState==='paused'?'PAUSED':'IDLE'),
+              moreMenu([smallButton('完整报告 / 原文',()=>setFullReportOpen(true),!parseResult),smallButton('复制',copyParseResult,!parseResult),smallButton('下载 Word',downloadParseDocx,!parseResult||parseDocxBusy),smallButton('编辑 / 备注',()=>openRecordEdit(parseRecord),!parseRecord),smallButton('手工归档',openArchive,!parseRecord||parseResultState!=='done'),smallButton('@文件问答',()=>jumpToFileQa(parseRecord),!parseRecord),smallButton('来源预览',()=>setPreviewFile({name:parseRecord.fileName,path:parseRecord.filePath}),!parseRecord||!parseRecord.filePath||!publicConfirmed),smallButton('重试选中文件',()=>{if(activeFile){updateFileTask(activeFile.key,{status:'pending',jobId:null,recordId:null});void startParse();}},!activeFile||parseBusy||!!(activeFile&&fileTasks[activeFile.key]&&!['done','failed'].includes(fileTasks[activeFile.key].status)))])),
+              parseRecord&&parseRecord.structureVersion===1?h('div',{className:'pa-structured'},h('h4',null,parseRecord.title),h('p',null,parseRecord.summary),h('ol',null,parseRecord.points.map((p,i)=>h('li',{key:i},h('span',null,p.text),(p.references||[]).map((r,j)=>h('blockquote',{key:j,title:r.filePath},r.quote,' · 待人工复核'))))),h('div',{className:'pa-keywords'},parseRecord.keywords.map((k,i)=>h('span',{key:i},k))),parseRecord.structureWarning?h('p',{className:'pa-warn'},parseRecord.structureWarning):null,h('p',{className:'pa-muted'},'关键词为模型生成；全部结果待人工复核')):
+                parseResultState==='streaming'?h('div',{className:'pa-result-empty'},'正在解析，请以真实完成事件为准…'):
+                parseResult?h('div',{className:'pa-structured'},h('p',{className:'pa-warn'},(parseRecord&&parseRecord.structureWarning)||'结构化信息暂缺，保留真实报告'),renderMdBlocks(parseResult)):h('div',{className:'pa-result-empty'},'尚未开始解析。确认材料公开性并上传文件后，点击“开始解析”。')),
+            h('article',{className:'pa-log-card'},renderParseTerm()))));
+      const renderPrototypeRecords=()=>h('section',{className:'pa-proto-page'},h('article',{className:'pa-record-card'},h('div',{className:'pa-card-head'},h('h3',null,'解析归档'),smallButton('刷新',()=>void loadRecords(),recLoading)),
+        h('div',{className:'pa-record-filters'},h('input',{className:'pa-input',value:recQ,placeholder:'搜索标题、文件或内容',onChange:e=>setRecQ(e.target.value),onKeyDown:e=>{if(e.key==='Enter')void loadRecords();}}),h('input',{type:'date',className:'pa-input',value:recFrom,onChange:e=>{setRecFrom(e.target.value);setRecTo(e.target.value);void loadRecords({from:e.target.value,to:e.target.value});}}),smallButton('筛选',()=>void loadRecords(),recLoading),smallButton('重置',resetRecFilters),moreMenu([['completed','默认已完成'],['all','全部任务（含失败）'],['archived','仅手工归档']].map(([view,label])=>smallButton(label,()=>{setRecView(view);void loadRecords({view});},recLoading))),h('span',null,'共 '+recordsTotal+' 条；已完成解析记录与手工归档状态分别保留')),
+        recMsgLine(),h('div',{className:'pa-table-wrap'},h('table',null,h('thead',null,h('tr',null,['序号','解析日期','解析标题','解析文件名称','备注','操作'].map(x=>h('th',{key:x},x)))),h('tbody',null,records.length?records.map((r,i)=>h('tr',{key:r.id},h('td',null,i+1),h('td',null,fmtDateTime(r.createdAt)),h('td',null,r.title,' ',recStatusBadge(r)),h('td',null,r.fileName),h('td',null,r.remark||'—'),h('td',null,smallButton(pendingDeleteId===r.id?'确认删除？':'删除',()=>requestDelete(r)),moreMenu([smallButton('查看完整报告',()=>openRecordDrawer(r)),smallButton('源文件预览',()=>{setPreviewConfirmed(false);setPendingPreview({name:r.fileName,path:r.filePath});},!r.filePath),smallButton('编辑 / 标题 / 备注',()=>openRecordEdit(r)),smallButton('下载 Word',()=>void downloadRecordDocx(r),r.status!=='done'),smallButton('@文件问答',()=>jumpToFileQa(r)),smallButton('手工归档',async()=>{await openRecordDrawer(r);setParseRecord(r);setArchiveTitle(r.title||'');setArchiveRemark(r.remark||'');setArchiveOpen(true);},r.status!=='done')])))):h('tr',null,h('td',{colSpan:6,className:'pa-record-empty'},recLoading?'加载中…':'没有匹配的归档记录'))))),drawerRecord?renderRecordDrawer():null));
+      const renderPrototypeQa=()=>h('section',{className:'pa-proto-page pa-qa-page'},h('div',{className:'pa-qa-grid'},
+        h('div',{className:'pa-chat-card',onDragEnter,onDragOver,onDragLeave,onDrop:onQaDrop},
+          renderDropOverlay(),
+          h('div',{className:'pa-qa-gate'},h('label',null,h('input',{type:'checkbox',checked:publicConfirmed,disabled:qaSendBusy||uploadBusy,onChange:e=>setPublicConfirmed(e.target.checked)}),' 我确认当前问答所用材料全部为已公开政策材料'),smallButton('清空',clearQaInput,qaSendBusy)),
+          h('div',{className:'pa-card-head'},h('h3',null,qaHeaderTitle),moreMenu([smallButton('归档本次问答',archiveQaSession,qaArchiveDisabled),smallButton('查询真实任务结果',()=>void recoverQa(),qaSendBusy||!qaPendingRef.current),smallButton('刷新当前会话',()=>{if(qaActiveId)void openQaSession({id:qaActiveId});},qaSendBusy||qaBackendUnknown||!qaActiveId),smallButton('停止接收（不取消后台）',()=>qaSendAbortRef.current&&qaSendAbortRef.current.abort(),!qaSendBusy)])),
+          qaMsg?h('div',{className:'pa-inline-status',role:'status'},qaMsg.text):null,
+          h('div',{className:'pa-chat-scroll',ref:qaFlowRef,onScroll:onQaFlowScroll},qaMessages.length?qaMessages.map((m,i)=>h('div',{key:m.id},renderQaMsgItem(m),m.role==='assistant'&&m.state!=='streaming'?smallButton('重试问题',()=>{const previous=qaMessages.slice(0,i).reverse().find(x=>x.role==='user');if(previous){setQaInput(previous.text);setQaMsg({kind:'info',text:'已带入原问题；确认材料后发送'});}},qaSendBusy):null)):h('div',{className:'pa-welcome'},'你好，我可以围绕公开政策文件进行结构化解读与问答。请选择文件或直接输入问题。所有结果待人工复核。')),
+          h('div',{className:'pa-chat-input'},
+            h('div',{className:'pa-qa-tools'},h('span',null,source==='knowledge_only'?'单源检索 · 政策知识库':'单源检索 · 官方网站'),smallButton('配置',()=>setConfigOpen(true),qaSendBusy||parseBusy)), /* PA-COMPOSER-20261005 */
+            qaFiles.length?h('div',{className:'pa-file-chips'},qaFiles.map(f=>h('span',{key:f.key,className:'pa-file-chip'},f.name,smallButton('×',()=>removeQaFile(f.key),qaSendBusy)))):null,
+            uploadMsg?h('p',{className:'pa-error'},uploadMsg.text):null,
+            /* PA-QALAYOUT-20261005：输入区上边拖拽条 —— 底边贴底，上边可人为拉高 / 压低 */
+            h('div',{className:'pa-resize-grip'+(qaResizing?' pa-active':''),role:'separator','aria-orientation':'horizontal','aria-label':'拖拽调整输入区高度','aria-valuenow':qaComposeH,
+              tabIndex:0,title:'拖拽调整输入区高度（双击恢复默认；聚焦后 ↑/↓ 微调）',
+              onPointerDown:startQaComposeResize,
+              onDoubleClick:()=>{applyQaComposeH(PA_COMPOSE_H_DEFAULT);persistQaComposeH();},
+              onKeyDown:e=>{if(e.key==='ArrowUp'){e.preventDefault();nudgeQaComposeH(16);}else if(e.key==='ArrowDown'){e.preventDefault();nudgeQaComposeH(-16);}else if(e.key==='Home'){e.preventDefault();applyQaComposeH(PA_COMPOSE_H_DEFAULT);persistQaComposeH();}}},
+              h('span',{'aria-hidden':true})),
+            h('div',{className:'pa-chat-compose'+(dragOver?' pa-drop':'')+(qaResizing?' pa-resizing':''),style:{'--pa-compose-h':qaComposeH+'px'}}, /* PA-COMPOSER-20261005 · PA-QALAYOUT-20261005 */
+              dragOver?h('div',null,h('span',{className:'pa-compose-pill'},'松开以添加附件')):null,
+              h('textarea',{ref:qaInputRef,className:'pa-input',rows:2,value:qaInput,placeholder:'输入政策问题，Enter发送，Shift+Enter换行',onChange:e=>setQaInput(e.target.value),onKeyDown:e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.nativeEvent.isComposing){e.preventDefault();void sendQa();}}}),
+              h('div',{className:'pa-compose-bar'},
+                h('button',{type:'button',className:'pa-compose-btn',title:'上传附件（PDF / DOCX / XLSX）','aria-label':'上传附件',disabled:uploadBusy||qaSendBusy,onClick:()=>pickFiles('qa')},'+'),
+                h('button',{type:'button',className:'pa-compose-btn',title:'引用政策文件','aria-label':'引用文件',disabled:qaSendBusy,onClick:()=>{setFilePickerOpen(true);void loadRecords();}},'@'),
+                h('span',{className:'pa-bar-gap'}),
+                renderModelPicker('qa'), /* PA-QALAYOUT-20261005：模型选择紧贴发送按钮左侧 */
+                h('button',{type:'button',className:'pa-compose-send',title:'发送','aria-label':'发送',disabled:qaSendBusy||qaBackendUnknown||uploadBusy||!publicConfirmed||!qaInput.trim(),onClick:()=>void sendQa()},qaSendBusy?'…':'➤'))),
+            h('p',{className:'pa-muted'},'PDF / DOCX / XLSX ≤30MB · 当前材料公开确认后发送 · 待人工复核')))));
+      const closeLocalModal=()=>{setConfigOpen(false);setFilePickerOpen(false);setFullReportOpen(false);setPendingPreview(null);setPreviewConfirmed(false);};
+      const modalProps=label=>({className:'pa-local-overlay',role:'dialog','aria-modal':true,'aria-label':label,onClick:e=>{if(e.target===e.currentTarget)closeLocalModal();},onKeyDown:e=>{if(e.key==='Escape'){e.stopPropagation();closeLocalModal();}else if(e.key==='Tab'){const nodes=[...e.currentTarget.querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),a[href]')];const first=nodes[0],last=nodes.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last&&last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first&&first.focus();}}}});
+      const renderPreviewGate=()=>h('div',modalProps('源文件公开性确认'),h('article',{className:'pa-local-dialog'},h('h3',null,'源文件预览确认'),h('p',null,pendingPreview.name),h('label',null,h('input',{type:'checkbox',checked:previewConfirmed,onChange:e=>setPreviewConfirmed(e.target.checked)}),' 我确认此文件已完全公开，授权读取预览'),smallButton('确认并预览',()=>{setPreviewFile(pendingPreview);setPendingPreview(null);setPreviewConfirmed(false);},!previewConfirmed),smallButton('取消',closeLocalModal)));
+      const renderConfigModal=()=>h('div',modalProps('任务配置'),h('article',{className:'pa-local-dialog'},h('h3',null,'任务配置 · 单一来源'),h('p',null,'更改配置将撤销当前材料确认；问答使用新会话，旧历史保留。'),[['来源',source,setSource,[['knowledge_only','仅知识库（政策资料）'],['web_only','仅官方政府网站']]],['角色',role,setRole,ROLES.map(r=>[r.key,tr(r.labelKey)])],['模式',mode,setMode,MODES.map(m=>[m.key,tr(m.labelKey)])]].map(([label,value,setValue,items])=>h('label',{key:label},label,h('select',{className:'pa-input',value,onChange:e=>{setValue(e.target.value);newQaSession();}},items.map(([id,text])=>h('option',{key:id,value:id},text))))),h('p',{className:'pa-muted'},'禁止跨源混用或无结果自动回退；所有结果待人工复核。'),smallButton('关闭',()=>setConfigOpen(false))));
+      const renderFilePicker=()=>h('div',modalProps('选择真实归档文件'),h('article',{className:'pa-local-dialog'},h('h3',null,'选择公开政策文件'),h('p',null,'带入后必须重新确认当前材料公开性，不自动发送。'),records.filter(r=>r.filePath).map(r=>smallButton(r.fileName||r.title,()=>{jumpToFileQa(r);setFilePickerOpen(false);})),smallButton('关闭',()=>setFilePickerOpen(false))));
+      const renderFullReport=()=>h('div',modalProps('完整报告'),h('article',{className:'pa-local-dialog pa-report-dialog'},smallButton('关闭',()=>setFullReportOpen(false)),renderParseResultPanel()));
+
       /* ════════ 根布局（v1.3.0：左侧竖向导航 + 右侧视图区） ════════ */
       return h('div', {
-        className: 'pa-root',
+        className: 'pa-root pa-cloud',ref:moduleRef,
         style: {
           display: 'flex', flexDirection: 'row', height: '100%', width: '100%',
           minHeight: 0, overflow: 'hidden', background: T.bgRoot, color: T.text1,
@@ -4889,24 +5114,34 @@ window.__ModuleLoader__.load({
       },
         // pa-* 样式表（组件根内，卸载随组件移除）
         h('style', { key: 'pa-style', dangerouslySetInnerHTML: { __html: CSS_TEXT } }),
+        h('style', { key: 'pa-composer-style', dangerouslySetInnerHTML: { __html: PA_COMPOSER_CSS } }), /* PA-COMPOSER-20261005 */
+        h('style', { key: 'pa-qalayout-style', dangerouslySetInnerHTML: { __html: PA_QALAYOUT_CSS } }), /* PA-QALAYOUT-20261005 */
+        h('style', { key: 'pa-qats-style', dangerouslySetInnerHTML: { __html: PA_QATS_CSS } }), /* paQaTsNarrow-20261005 */
         // 左侧竖向导航（品牌块 + 文件解析/解析归档/智能问答 + 公开性状态 chip）
+        // DSH原侧栏独立收起；政策子页面放在模块自己的左侧栏。
+        moduleNavOpen ? h('button', { type:'button', className:'pa-module-scrim', 'aria-label':'关闭政策模块导航', onClick:()=>setModuleNavOpen(false) }) : null,
         renderSideNav(),
+
         h('div', { style: { flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' } },
-          renderTopBar(),
+          renderPrototypeHeader(),
           // 三视图同时渲染，用 style.display 切换（绝不条件卸载，避免丢状态/断 SSE）
           h('div', { style: { flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' } },
             h('div', { key: 'pa-view-parse', style: { flex: 1, minWidth: 0, display: tab === 'parse' ? 'flex' : 'none', overflow: 'hidden' } },
-              renderParseTab(),
+              renderPrototypeParse(),
             ),
             h('div', { key: 'pa-view-records', style: { flex: 1, minWidth: 0, display: tab === 'records' ? 'flex' : 'none', overflow: 'hidden' } },
-              renderRecordsTab(),
+              renderPrototypeRecords(),
             ),
             h('div', { key: 'pa-view-qa', style: { flex: 1, minWidth: 0, display: tab === 'qa' ? 'flex' : 'none', overflow: 'hidden' } },
-              renderQaTab(),
+              renderPrototypeQa(),
             ),
           ),
         ),
         // 归档模态对话框（条件渲染；输入状态存于 Workbench，关闭/重开不丢数据）
+        pendingPreview ? renderPreviewGate() : null,
+        configOpen ? renderConfigModal() : null,
+        filePickerOpen ? renderFilePicker() : null,
+        fullReportOpen ? renderFullReport() : null,
         archiveOpen ? renderArchiveModal() : null,
         editRecord ? renderEditModal() : null,
         // v1.4.0 源文件在线预览模态（文件解析页 chip「预览」入口）
@@ -4966,7 +5201,8 @@ window.__ModuleLoader__.load({
           const detail = (ev && ev.detail) || {};
           const layout = ctx.layout || (ctx.get && ctx.get('layout'));
           if (layout && typeof layout.selectPanel === 'function') layout.selectPanel(PANEL_ID);
-          setSidebarCollapsed(layout, true);
+          // 保留DSH全局侧栏，不因打开模块擅自收起。
+
           void detail;
         }
         // 侧栏桥（组件内无 ctx，经 window 事件驱动）：collapse/expand + 返回主页

@@ -1,6 +1,6 @@
 {
   "name": "@local/policy-analysis",
-  "version": "1.4.2",
+  "version": "1.5.5-qats.2",
   "private": true,
   "type": "module",
   "main": "./index.js",
@@ -12,15 +12,24 @@
     "./locale/*.json": "./locale/*.json"
   },
   "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "README.md",
     "locale/*.json",
-    "icon.svg"
+    "icon.svg",
+    "humanizer-zh-qa-v1.mjs"
   ],
   "dsh": {
-    "bundle": { "patch": "./cordis.patch.yml" },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
     "client": {
       "platform": "web",
       "immediately": true,
-      "inject": ["@deepseek-ai/dsh-client-ui-conversation"]
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
     },
     "capabilityPack": {
       "id": "policy-analysis",
@@ -30,9 +39,18 @@
       "order": 15,
       "icon": "📜",
       "category": "政务办公",
-      "version": "v1.4.2",
-      "tags": ["政策检索", "版本比较", "引用核验", "合法合规性审查"],
-      "subs": ["任务简报", "演示场景"],
+      "version": "v1.5.5-qats.2",
+      "tags": [
+        "政策检索",
+        "版本比较",
+        "引用核验",
+        "合法合规性审查"
+      ],
+      "subs": [
+        "文件解析",
+        "解析归档",
+        "智能问答"
+      ],
       "openEvent": "cappacks:open-policy-analysis"
     }
   }
