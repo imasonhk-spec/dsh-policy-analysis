@@ -66,6 +66,7 @@ import path from 'node:path';
 import os from 'node:os';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
+import { installLicense } from './license-http.mjs'; /* PATCH:WB-LIC-IMPORT */
 
 /** 插件版本（与 package.json 保持一致） */
 export const VERSION = '1.5.2';
@@ -4279,6 +4280,10 @@ export const MANIFEST = {
  */
 export function apply(ctx, _config) {
   const disposers = [];
+  /* PATCH:WB-LIC-APPLY — 授权收口：本插件自带授权运行时，不依赖工作台；apply 阶段绝不 throw */
+  const __lic = installLicense(ctx, { pluginId: 'policy-analysis', prefix: '/api/policy-analysis' });
+  try { disposers.push(() => { try { __lic.gate.flush(); } catch {} }); } catch {}
+
   // 0. 记录宿主上下文（供 GET /models 读取 llm 模型注册表与默认模型；卸载时清除引用）
   PACK_CONTEXT = ctx;
   disposers.push(() => { PACK_CONTEXT = null; });
@@ -4320,6 +4325,7 @@ export function apply(ctx, _config) {
           kind: 'prefix',
           path: '/api/policy-analysis',
           handler(req, res) {
+            if (__lic.guard(req, res)) return; /* PATCH:WB-LIC-GUARD */
             handlePackHttpRequest(req, res).catch((e) => {
               sendJson(res, 500, { ok: false, code: 'INTERNAL', message: '处理失败：' + (e && e.message ? e.message : String(e)) });
             });
