@@ -70,7 +70,7 @@ window.__ModuleLoader__.load({
     const OPEN_EVENT = 'cappacks:open-policy-analysis';
     const SIDEBAR_EVENT = 'pa:policy-analysis-sidebar';
     // 版本徽标（左侧导航品牌块显示；随功能版本更新）
-    const VERSION = 'v1.5.6-qats.4'; /* PA-GATEHINT-20261019 PA-QAHINT-20261021 PA-HIST2-20261021 */
+    const VERSION = 'v1.6.0'; /* PA-GATEHINT-20261019 PA-QAHINT-20261021 PA-HIST2-20261021 */
     /* v1.3.2 固定缺省（文件解析/智能问答界面均不再暴露角色/模式/来源选择，一处定义两处使用）：
      * 政策解读缺省执行角色与分析模式 + 「仅知识库」保守来源（底线：严禁联网兜底；
      * QA 附件经 policy_extract 读文件、无附件为模型知识作答，检索行为受指令约束）。 */

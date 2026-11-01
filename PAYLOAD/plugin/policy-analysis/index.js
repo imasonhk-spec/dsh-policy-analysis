@@ -69,7 +69,7 @@ import crypto from 'node:crypto';
 import { installLicense } from './license-http.mjs'; /* PATCH:WB-LIC-IMPORT */
 
 /** 插件版本（与 package.json 保持一致） */
-export const VERSION = '1.5.2';
+export const VERSION = '1.6.0';
 
 /* =========================================================================
  * 一、统一枚举与文案常量（与 agent.md / SKILL.md 全插件统一）
@@ -4265,7 +4265,7 @@ export const MANIFEST = {
   order: 15,
   icon: '📜',
   category: '政务办公',
-  version: 'v1.5.2',
+  version: 'v1.6.0',
   tags: ['政策检索', '版本比较', '引用核验', '合法合规性审查'],
   subs: ['文件解析', '解析归档', '智能问答'],
   openEvent: 'cappacks:open-policy-analysis',
