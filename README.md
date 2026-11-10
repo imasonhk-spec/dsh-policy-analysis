@@ -1,4 +1,4 @@
-# dsh-policy-analysis 1.7.0
+# dsh-policy-analysis 1.7.1
 
 政策解读
 
@@ -20,8 +20,8 @@
 ## 安装
 
 ```bash
-tar -xzf dsh-policy-analysis-1.7.0.tar.gz
-cd dsh-policy-analysis-1.7.0
+tar -xzf dsh-policy-analysis-1.7.1.tar.gz
+cd dsh-policy-analysis-1.7.1
 sudo ./install.sh
 ```
 

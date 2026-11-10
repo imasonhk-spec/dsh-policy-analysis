@@ -1,6 +1,6 @@
 {
   "name": "@local/policy-analysis",
-  "version": "1.6.0",
+  "version": "1.5.7",
   "private": true,
   "type": "module",
   "main": "./index.js",
@@ -18,12 +18,7 @@
     "README.md",
     "locale/*.json",
     "icon.svg",
-    "humanizer-zh-qa-v1.mjs",
-    "license-gate.mjs",
-    "license-http.mjs",
-    "license-panel.js",
-    "package.json",
-    "install-manifest.json"
+    "humanizer-zh-qa-v1.mjs"
   ],
   "dsh": {
     "bundle": {
@@ -44,7 +39,7 @@
       "order": 15,
       "icon": "📜",
       "category": "政务办公",
-      "version": "v1.6.0",
+      "version": "v1.5.6-qats.4",
       "tags": [
         "政策检索",
         "版本比较",

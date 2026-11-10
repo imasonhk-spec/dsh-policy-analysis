@@ -3,7 +3,7 @@
 set -euo pipefail
 
 PKG_NAME="dsh-policy-analysis"
-PKG_VERSION="1.7.0"
+PKG_VERSION="1.7.1"
 PLUGIN_DIR="@local/policy-analysis"
 SERVICES=""
 
