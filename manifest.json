@@ -1,0 +1,35 @@
+{
+  "name": "dsh-policy-analysis",
+  "unit": "dsh-policy-analysis",
+  "version": "1.7.2",
+  "previousVersion": "1.7.1",
+  "title": "政策解读",
+  "kind": "plugin",
+  "services": [],
+  "ports": [],
+  "pluginDir": "@local/policy-analysis",
+  "hasVenv": false,
+  "hasNode": false,
+  "hasHarness": false,
+  "generatedAt": "2026-11-10T12:48:11+08:00",
+  "host": "lgsj",
+  "installScope": [
+    "host-profile",
+    "all-existing-accounts"
+  ],
+  "baseRepo": "imasonhk-spec/dsh",
+  "baseTag": "v0.2.0",
+  "fsEntries": [],
+  "aptProvides": [],
+  "runtimeFrom": [],
+  "pathRemap": [
+    {
+      "from": "/home/lgsj/.dsh",
+      "to": "@DSH_HOME@"
+    },
+    {
+      "from": "/home/lgsj",
+      "to": "@USER_HOME@"
+    }
+  ]
+}
